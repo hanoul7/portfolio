@@ -513,10 +513,43 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
         <label class="fl">보유 수량 (주)</label>
         <input id="f-qty" type="number" placeholder="10" inputmode="numeric" />
       </div>
+      <div class="ff form-full">
+        <label class="fl">계좌명 (선택)</label>
+        <input id="f-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" />
+      </div>
     </div>
     <div class="form-err" id="add-err"></div>
     <button class="btn-primary" onclick="addStock()">추가하기</button>
     <button class="btn-secondary" onclick="closeAddModal()">취소</button>
+  </div>
+</div>
+
+<!-- 종목 편집 모달 -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">종목 편집</div>
+    <div class="form-grid">
+      <div class="ff form-full">
+        <label class="fl">종목</label>
+        <input id="e-label" type="text" disabled style="color:var(--text2);background:var(--bg4)" />
+      </div>
+      <div class="ff">
+        <label class="fl">평균 매입단가 (원)</label>
+        <input id="e-avg" type="number" inputmode="numeric" />
+      </div>
+      <div class="ff">
+        <label class="fl">보유 수량 (주)</label>
+        <input id="e-qty" type="number" inputmode="numeric" />
+      </div>
+      <div class="ff form-full">
+        <label class="fl">계좌명</label>
+        <input id="e-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" />
+      </div>
+    </div>
+    <div class="form-err" id="edit-err"></div>
+    <button class="btn-primary" onclick="saveEdit()">저장</button>
+    <button class="btn-secondary" onclick="closeEditModal()">취소</button>
   </div>
 </div>
 
@@ -792,11 +825,13 @@ function renderList() {
       priceHtml = '<div class="stock-right"><div class="stock-price" style="color:var(--text3)">—</div></div>';
     }
 
+    const acctHtml = s.acct ? `<span style="color:var(--accent);font-size:10px;font-weight:600">${s.acct}</span>` : '';
+
     return `
-      <div class="stock-card ${cardCls}">
-        <button class="del-btn" onclick="delStock('${s.id}')">✕</button>
+      <div class="stock-card ${cardCls}" onclick="openEditModal('${s.id}')" style="cursor:pointer">
+        <button class="del-btn" onclick="event.stopPropagation();delStock('${s.id}')">✕</button>
         <div class="stock-left">
-          <div class="stock-name">${s.name} ${badge}</div>
+          <div class="stock-name">${s.name} ${badge} ${acctHtml}</div>
           <div class="stock-meta">
             <span>${s.ticker}</span>
             <span>평단 ${fmt(s.avg)}원</span>
@@ -899,17 +934,18 @@ async function addStock() {
   const name = document.getElementById('f-name').value.trim() || tick;
   const avg = parseFloat(document.getElementById('f-avg').value);
   const qty = parseInt(document.getElementById('f-qty').value);
+  const acct = document.getElementById('f-acct').value.trim();
   const err = document.getElementById('add-err');
 
   if (!tick || isNaN(avg) || isNaN(qty) || avg <= 0 || qty <= 0) {
     err.textContent = '모든 항목을 입력해주세요'; return;
   }
-  if (pf.find(s => s.ticker === tick && s.market === mkt)) {
-    err.textContent = '이미 추가된 종목입니다'; return;
+  if (pf.find(s => s.ticker === tick && s.market === mkt && (s.acct || '') === acct)) {
+    err.textContent = '이미 추가된 종목입니다 (같은 계좌)'; return;
   }
   err.textContent = '';
   const id = Date.now().toString();
-  pf.push({ id, market: mkt, ticker: tick, name, avg, qty });
+  pf.push({ id, market: mkt, ticker: tick, name, avg, qty, acct });
   save();
   closeAddModal();
   render();
@@ -943,11 +979,44 @@ function openAddModal() {
   document.getElementById('f-name').value = '';
   document.getElementById('f-avg').value = '';
   document.getElementById('f-qty').value = '';
+  document.getElementById('f-acct').value = '';
   document.getElementById('add-err').textContent = '';
+  document.getElementById('name-hint').textContent = '';
   document.getElementById('add-modal').classList.add('open');
   setTimeout(() => document.getElementById('f-tick').focus(), 300);
 }
 function closeAddModal() { document.getElementById('add-modal').classList.remove('open'); }
+
+let editId = null;
+function openEditModal(id) {
+  const s = pf.find(x => x.id === id);
+  if (!s) return;
+  editId = id;
+  document.getElementById('e-label').value = `${s.name} (${s.ticker})`;
+  document.getElementById('e-avg').value = s.avg;
+  document.getElementById('e-qty').value = s.qty;
+  document.getElementById('e-acct').value = s.acct || '';
+  document.getElementById('edit-err').textContent = '';
+  document.getElementById('edit-modal').classList.add('open');
+}
+function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); editId = null; }
+function saveEdit() {
+  const s = pf.find(x => x.id === editId);
+  if (!s) return;
+  const avg = parseFloat(document.getElementById('e-avg').value);
+  const qty = parseInt(document.getElementById('e-qty').value);
+  const acct = document.getElementById('e-acct').value.trim();
+  const err = document.getElementById('edit-err');
+  if (isNaN(avg) || isNaN(qty) || avg <= 0 || qty <= 0) {
+    err.textContent = '평단과 수량을 확인해주세요'; return;
+  }
+  s.avg = avg;
+  s.qty = qty;
+  s.acct = acct;
+  save();
+  closeEditModal();
+  render();
+}
 
 function openApiModal() { document.getElementById('api-modal').classList.add('open'); }
 function closeApiModal() { document.getElementById('api-modal').classList.remove('open'); }
@@ -974,6 +1043,9 @@ function saveApiKey() {
 // ── 모달 바깥 클릭으로 닫기 ──
 document.getElementById('add-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('add-modal')) closeAddModal();
+});
+document.getElementById('edit-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('edit-modal')) closeEditModal();
 });
 document.getElementById('api-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('api-modal')) closeApiModal();
