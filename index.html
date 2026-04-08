@@ -813,11 +813,15 @@ async function refreshAll() {
     return;
   }
   let ok = 0, fail = 0;
+  const cache = {};
   for (const s of pf) {
-    let p;
-    if (s.market === 'GOLD') p = await fetchGold(tok);
-    else if (s.market === 'KR') p = await fetchKR(s.ticker, tok);
-    else p = await fetchUS(s.ticker, tok);
+    const cacheKey = s.market + ':' + s.ticker;
+    if (!(cacheKey in cache)) {
+      if (s.market === 'GOLD') cache[cacheKey] = await fetchGold(tok);
+      else if (s.market === 'KR') cache[cacheKey] = await fetchKR(s.ticker, tok);
+      else cache[cacheKey] = await fetchUS(s.ticker, tok);
+    }
+    const p = cache[cacheKey];
     if (p) {
       px[s.id] = p;
       if (p.name && p.name !== s.ticker) s.name = p.name;
