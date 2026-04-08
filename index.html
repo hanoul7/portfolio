@@ -95,7 +95,7 @@ header {
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
 /* 메인 */
-main { max-width: 1200px; margin: 0 auto; padding: 20px 16px; }
+main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
 /* 요약 카드 그룹 */
 .summary-row {
@@ -261,13 +261,10 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 16px; }
   .summary-row, .info-bar { grid-column: 1 / 2; }
   .section-hd, .stock-list, .add-btn { grid-column: 2 / 3; }
   .section-hd { grid-row: 1; }
-  .stock-list { grid-row: 2 / 10; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start; }
+  .stock-list { grid-row: 2 / 10; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-content: start; }
   .stock-card { height: fit-content; }
   .add-btn { grid-row: 10; }
   .empty-state { grid-column: 1 / -1; }
-}
-@media (min-width: 1100px) {
-  .stock-list { grid-template-columns: 1fr 1fr 1fr; }
 }
 
 /* 모바일: 항상 삭제 버튼 표시 */
