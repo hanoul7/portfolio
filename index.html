@@ -744,10 +744,13 @@ async function fetchUS(ticker, tok) {
 // ── 금현물: 국제금시세 기반 계산 ──
 async function fetchGold() {
   const TROY_OZ_TO_GRAM = 31.1034768;
+  console.log('[fetchGold] xauUsd =', xauUsd, ', usdkrw =', usdkrw);
   if (xauUsd > 0 && usdkrw > 0) {
     const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM);
+    console.log('[fetchGold] pricePerGram =', pricePerGram);
     return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: 0, changeRatio: 0, name: 'KRX금현물', estimated: true };
   }
+  console.warn('[fetchGold] 금시세 계산 불가 — xauUsd 또는 usdkrw가 0');
   return null;
 }
 
@@ -760,13 +763,12 @@ async function fetchRate() {
       usdkrw = d.rates.KRW;
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
-  } catch(e) {}
-  // XAU/USD (1 XAU = ? USD)
-  try {
-    const r = await fetch('https://open.er-api.com/v6/latest/XAU');
-    const d = await r.json();
-    if (d?.rates?.USD) xauUsd = d.rates.USD;
-  } catch(e) {}
+    // XAU: USD base 응답에서 역수로 계산 (1 XAU = ? USD)
+    if (d?.rates?.XAU && d.rates.XAU > 0) {
+      xauUsd = 1 / d.rates.XAU;
+      console.log('[fetchRate] xauUsd =', xauUsd, '(1/XAU rate:', d.rates.XAU, ')');
+    }
+  } catch(e) { console.error('[fetchRate] error:', e); }
 }
 
 // ── 전체 새로고침 ──
