@@ -4,5 +4,15 @@
       "source": "/api/kis/:path*",
       "destination": "https://openapi.koreainvestment.com:9443/:path*"
     }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type,authorization,appkey,appsecret,tr_id,custtype" }
+      ]
+    }
   ]
 }
