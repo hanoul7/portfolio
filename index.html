@@ -756,6 +756,7 @@ async function fetchGold() {
 
 // ── 환율 ──
 async function fetchRate() {
+  // USD/KRW
   try {
     const r = await fetch('https://open.er-api.com/v6/latest/USD');
     const d = await r.json();
@@ -763,12 +764,25 @@ async function fetchRate() {
       usdkrw = d.rates.KRW;
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
-    // XAU: USD base 응답에서 역수로 계산 (1 XAU = ? USD)
-    if (d?.rates?.XAU && d.rates.XAU > 0) {
-      xauUsd = 1 / d.rates.XAU;
-      console.log('[fetchRate] xauUsd =', xauUsd, '(1/XAU rate:', d.rates.XAU, ')');
+  } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
+  // XAU/USD: metals.live → goldprice.org 순서
+  try {
+    const r = await fetch('https://api.metals.live/v1/spot/gold');
+    const d = await r.json();
+    if (Array.isArray(d) && d[0]?.gold > 0) {
+      xauUsd = d[0].gold;
+      console.log('[fetchRate] xauUsd =', xauUsd, '(metals.live)');
+      return;
     }
-  } catch(e) { console.error('[fetchRate] error:', e); }
+  } catch(e) { console.warn('[fetchRate] metals.live failed:', e); }
+  try {
+    const r = await fetch('https://data-asg.goldprice.org/dbXRates/USD');
+    const d = await r.json();
+    if (d?.items?.[0]?.xauPrice > 0) {
+      xauUsd = d.items[0].xauPrice;
+      console.log('[fetchRate] xauUsd =', xauUsd, '(goldprice.org)');
+    }
+  } catch(e) { console.warn('[fetchRate] goldprice.org failed:', e); }
 }
 
 // ── 전체 새로고침 ──
