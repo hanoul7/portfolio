@@ -765,17 +765,7 @@ async function fetchRate() {
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
-  // XAU/USD: gold-api.com → KIS 금선물(CME GC) fallback
-  try {
-    const r = await fetch('/api/gold');
-    const d = await r.json();
-    if (d?.price > 0) {
-      xauUsd = d.price;
-      console.log('[fetchRate] xauUsd =', xauUsd, '(gold-api.com)');
-      return;
-    }
-  } catch(e) { console.warn('[fetchRate] gold-api.com failed:', e); }
-  // fallback: KIS API 금선물
+  // XAU/USD: KIS API 금선물(CME GC)
   if (appKey && appSecret) {
     try {
       const tok = await getToken();
