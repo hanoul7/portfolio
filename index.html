@@ -860,16 +860,21 @@ async function lookupName() {
         headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
       });
       const d = await r.json();
-      name = d && d.output && d.output.hts_kor_isnm;
+      const o = d?.output;
+      if (o && o.stck_prpr) name = o.hts_kor_isnm || tick;
     } catch(e) {}
   } else {
-    try {
-      const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB='+tick, {
-        headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
-      });
-      const d = await r.json();
-      name = d && d.output && (d.output.korname || d.output.rsym);
-    } catch(e) {}
+    for (const excd of ['NAS', 'NYS', 'AMS']) {
+      if (name) break;
+      try {
+        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD='+excd+'&SYMB='+tick, {
+          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
+        });
+        const d = await r.json();
+        const o = d?.output;
+        if (o && o.last) name = tick;
+      } catch(e) {}
+    }
   }
   if (name && name.trim()) {
     document.getElementById('f-name').value = name.trim();
