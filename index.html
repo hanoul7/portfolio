@@ -765,15 +765,32 @@ async function fetchRate() {
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
-  // XAU/USD: gold-api.com
+  // XAU/USD: gold-api.com → KIS 금선물(CME GC) fallback
   try {
     const r = await fetch('/api/gold');
     const d = await r.json();
     if (d?.price > 0) {
       xauUsd = d.price;
       console.log('[fetchRate] xauUsd =', xauUsd, '(gold-api.com)');
+      return;
     }
   } catch(e) { console.warn('[fetchRate] gold-api.com failed:', e); }
+  // fallback: KIS API 금선물
+  if (appKey && appSecret) {
+    try {
+      const tok = await getToken();
+      if (tok) {
+        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=CME&SYMB=GC', {
+          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
+        });
+        const d = await r.json();
+        if (d?.output?.last && parseFloat(d.output.last) > 0) {
+          xauUsd = parseFloat(d.output.last);
+          console.log('[fetchRate] xauUsd =', xauUsd, '(KIS CME GC)');
+        }
+      }
+    } catch(e) { console.warn('[fetchRate] KIS gold failed:', e); }
+  }
 }
 
 // ── 전체 새로고침 ──
