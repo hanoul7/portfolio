@@ -494,7 +494,7 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
       <input type="hidden" id="f-mkt" value="KR" />
       <div class="ff form-full">
         <label class="fl">종목코드 / 티커 <span style="font-weight:400;font-size:10px;color:var(--text3)">숫자6자리=한국 · 영문=미국 · GOLD=금</span></label>
-        <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD" autocomplete="off" autocapitalize="characters" onblur="lookupName()" />
+        <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD" autocomplete="off" autocapitalize="characters" onblur="lookupName()" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupName();document.getElementById('f-avg').focus();}" />
       </div>
       <div class="ff form-full">
         <label class="fl">종목명 <span id="name-hint" style="font-weight:400;font-size:10px"></span></label>
@@ -502,11 +502,11 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
       </div>
       <div class="ff">
         <label class="fl">평균 매입단가 (원)</label>
-        <input id="f-avg" type="number" placeholder="759742" inputmode="numeric" />
+        <input id="f-avg" type="number" placeholder="759742" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('f-qty').focus();}" />
       </div>
       <div class="ff">
         <label class="fl">보유 수량 (주)</label>
-        <input id="f-qty" type="number" placeholder="10" inputmode="numeric" />
+        <input id="f-qty" type="number" placeholder="10" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
       </div>
       <div class="ff form-full">
         <label class="fl">계좌명 (선택)</label>
@@ -970,14 +970,14 @@ async function lookupName() {
     return;
   }
 
-  if (!appKey || !appSecret) return;
   hint.textContent = '조회 중...';
   hint.style.color = 'var(--text3)';
-  const tok = await getToken();
-  if (!tok) { hint.textContent = ''; return; }
   let name = null;
 
   if (mkt === 'KR') {
+    if (!appKey || !appSecret) return;
+    const tok = await getToken();
+    if (!tok) { hint.textContent = ''; return; }
     try {
       const code = tick.replace(/\D/g,'').padStart(6,'0');
       const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
@@ -988,21 +988,12 @@ async function lookupName() {
       if (o && o.prdt_abrv_name) name = o.prdt_abrv_name;
     } catch(e) {}
   } else {
-    for (const excd of ['NAS', 'NYS', 'AMS']) {
-      if (name) break;
-      try {
-        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD='+excd+'&SYMB='+tick, {
-          headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
-        });
-        const d = await r.json();
-        const o = d?.output;
-        console.log('[lookupName] EXCD=' + excd, 'SYMB=' + tick, '| output:', JSON.stringify(o).slice(0, 300));
-        if (o && (parseFloat(o.last) > 0 || parseFloat(o.base) > 0)) {
-          name = o.eng_item_name || o.hts_kor_isnm || o.prdt_name || tick;
-          console.log('[lookupName] matched:', name, '| excd:', excd);
-        }
-      } catch(e) { console.error('[lookupName] error:', excd, e); }
-    }
+    try {
+      const r = await fetch('/api/stock-name?symbol=' + encodeURIComponent(tick));
+      const d = await r.json();
+      console.log('[lookupName] /api/stock-name', tick, ':', JSON.stringify(d));
+      if (d.name) name = d.name;
+    } catch(e) { console.error('[lookupName] stock-name error:', e); }
   }
   if (name && name.trim()) {
     nameEl.value = name.trim();
