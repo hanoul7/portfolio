@@ -3,10 +3,6 @@
     {
       "source": "/api/kis/:path*",
       "destination": "https://openapi.koreainvestment.com:9443/:path*"
-    },
-    {
-      "source": "/api/gold",
-      "destination": "https://api.metals.live/v1/spot/gold"
     }
   ],
   "headers": [

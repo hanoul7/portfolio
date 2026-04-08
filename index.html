@@ -765,24 +765,15 @@ async function fetchRate() {
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
-  // XAU/USD: metals.live → goldprice.org 순서
+  // XAU/USD: gold-api.com
   try {
-    const r = await fetch('/api/gold');
+    const r = await fetch('https://gold-api.com/price/XAU');
     const d = await r.json();
-    if (Array.isArray(d) && d[0]?.gold > 0) {
-      xauUsd = d[0].gold;
-      console.log('[fetchRate] xauUsd =', xauUsd, '(metals.live)');
-      return;
+    if (d?.price > 0) {
+      xauUsd = d.price;
+      console.log('[fetchRate] xauUsd =', xauUsd, '(gold-api.com)');
     }
-  } catch(e) { console.warn('[fetchRate] metals.live failed:', e); }
-  try {
-    const r = await fetch('https://data-asg.goldprice.org/dbXRates/USD');
-    const d = await r.json();
-    if (d?.items?.[0]?.xauPrice > 0) {
-      xauUsd = d.items[0].xauPrice;
-      console.log('[fetchRate] xauUsd =', xauUsd, '(goldprice.org)');
-    }
-  } catch(e) { console.warn('[fetchRate] goldprice.org failed:', e); }
+  } catch(e) { console.warn('[fetchRate] gold-api.com failed:', e); }
 }
 
 // ── 전체 새로고침 ──
