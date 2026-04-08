@@ -213,6 +213,7 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
 }
 .badge-kr { background: var(--accent-dim); color: var(--accent); }
 .badge-us { background: var(--up-dim); color: var(--up); }
+.badge-gold { background: var(--gold-dim); color: var(--gold); }
 
 .stock-right { text-align: right; }
 .stock-price {
@@ -495,6 +496,7 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
         <select id="f-mkt" onchange="onMktChange()">
           <option value="KR">🇰🇷 한국 (KRX)</option>
           <option value="US">🇺🇸 미국 (NYSE/NASDAQ)</option>
+          <option value="GOLD">🥇 KRX금현물</option>
         </select>
       </div>
       <div class="ff">
@@ -591,6 +593,17 @@ let usdkrw = 1380;
 let appKey = '';
 let appSecret = '';
 let refreshing = false;
+let xauUsd = 0;
+let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '0');
+
+// ── KRX금 장중 판단 ──
+function isGoldMarketOpen() {
+  const now = new Date();
+  const day = now.getDay();
+  if (day === 0 || day === 6) return false;
+  const hhmm = now.getHours() * 100 + now.getMinutes();
+  return hhmm >= 900 && hhmm < 1530;
+}
 
 // ── 초기화 ──
 function init() {
@@ -720,6 +733,54 @@ async function fetchUS(ticker, tok) {
   return null;
 }
 
+// ── KIS API: KRX금현물 현재가 ──
+async function fetchGold(tok) {
+  const TROY_OZ_TO_GRAM = 31.1034768;
+  let krxPrice = null;
+  let estimated = false;
+
+  // 장중이면 KIS API로 KRX금현물 조회
+  if (isGoldMarketOpen()) {
+    try {
+      const r = await fetch(
+        '/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=X&fid_input_iscd=GC',
+        { headers: {
+          'authorization': `Bearer ${tok}`,
+          'appkey': appKey,
+          'appsecret': appSecret,
+          'tr_id': 'FHKST01010100',
+          'custtype': 'P'
+        }}
+      );
+      const d = await r.json();
+      const o = d?.output;
+      if (o && o.stck_prpr) {
+        krxPrice = parseInt(o.stck_prpr);
+        const prev = parseInt(o.stck_sdpr || o.stck_prpr);
+        // 장중: 프리미엄 계산 후 저장
+        if (xauUsd > 0 && usdkrw > 0) {
+          const intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
+          if (intlPerGram > 0) {
+            goldPremium = krxPrice / intlPerGram;
+            try { localStorage.setItem('gold_premium', goldPremium.toString()); } catch(e) {}
+          }
+        }
+        const chg = prev > 0 ? ((krxPrice - prev) / prev) * 100 : 0;
+        return { priceKrw: krxPrice, priceLocal: krxPrice, prevClose: prev, changeRatio: chg, name: 'KRX금현물', estimated: false };
+      }
+    } catch(e) {}
+  }
+
+  // 장외: 국제금시세 × 환율 × 프리미엄으로 추정가 계산
+  if (xauUsd > 0 && usdkrw > 0 && goldPremium > 0) {
+    const intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
+    krxPrice = Math.round(intlPerGram * goldPremium);
+    return { priceKrw: krxPrice, priceLocal: krxPrice, prevClose: 0, changeRatio: 0, name: 'KRX금현물', estimated: true };
+  }
+
+  return null;
+}
+
 // ── 환율 ──
 async function fetchRate() {
   try {
@@ -729,6 +790,12 @@ async function fetchRate() {
       usdkrw = d.rates.KRW;
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
+  } catch(e) {}
+  // XAU/USD (1 XAU = ? USD)
+  try {
+    const r = await fetch('https://open.er-api.com/v6/latest/XAU');
+    const d = await r.json();
+    if (d?.rates?.USD) xauUsd = d.rates.USD;
   } catch(e) {}
 }
 
@@ -747,7 +814,10 @@ async function refreshAll() {
   }
   let ok = 0, fail = 0;
   for (const s of pf) {
-    const p = s.market === 'KR' ? await fetchKR(s.ticker, tok) : await fetchUS(s.ticker, tok);
+    let p;
+    if (s.market === 'GOLD') p = await fetchGold(tok);
+    else if (s.market === 'KR') p = await fetchKR(s.ticker, tok);
+    else p = await fetchUS(s.ticker, tok);
     if (p) {
       px[s.id] = p;
       if (p.name && p.name !== s.ticker) s.name = p.name;
@@ -783,9 +853,12 @@ function renderList() {
   el.innerHTML = pf.map(s => {
     const p = px[s.id];
     const cost = s.avg * s.qty;
-    const badge = s.market === 'KR'
+    const badge = s.market === 'GOLD'
+      ? '<span class="badge badge-gold">GOLD</span>'
+      : s.market === 'KR'
       ? '<span class="badge badge-kr">KR</span>'
       : '<span class="badge badge-us">US</span>';
+    const unit = s.market === 'GOLD' ? 'g' : '주';
 
     let priceHtml = '<div class="loading-row">조회 중...</div>';
     let cardCls = '';
@@ -800,10 +873,11 @@ function renderList() {
       const gainCls = gain >= 0 ? 'up' : 'down';
       cardCls = gainCls;
 
+      const estLabel = (s.market === 'GOLD' && p.estimated) ? '<span style="font-size:10px;color:var(--gold)"> 추정</span>' : (s.market === 'GOLD' && !p.estimated) ? '<span style="font-size:10px;color:var(--up)"> 장중</span>' : '';
       priceHtml = `
         <div class="stock-right">
-          <div class="stock-price">${fmt(p.priceKrw)}원</div>
-          <div class="stock-pnl ${chgCls}">${fmtPct(p.changeRatio)}</div>
+          <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}</div>
+          <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
         </div>`;
 
       pnlHtml = `
@@ -835,7 +909,7 @@ function renderList() {
           <div class="stock-meta">
             <span>${s.ticker}</span>
             <span>평단 ${fmt(s.avg)}원</span>
-            <span>${s.qty}주</span>
+            <span>${s.qty}${unit}</span>
           </div>
         </div>
         ${priceHtml}
@@ -881,7 +955,7 @@ function renderSummary() {
 async function lookupName() {
   const tick = document.getElementById('f-tick').value.trim().toUpperCase();
   const mkt = document.getElementById('f-mkt').value;
-  if (!tick || !appKey || !appSecret) return;
+  if (!tick || !appKey || !appSecret || mkt === 'GOLD') return;
   const hint = document.getElementById('name-hint');
   hint.textContent = '조회 중...';
   hint.style.color = 'var(--text3)';
@@ -923,9 +997,23 @@ async function lookupName() {
 
 // ── 종목 추가/삭제 ──
 function onMktChange() {
-  document.getElementById('f-tick').placeholder = document.getElementById('f-mkt').value === 'KR' ? '000660' : 'AAPL';
-  document.getElementById('f-name').value = '';
+  const mkt = document.getElementById('f-mkt').value;
+  const tickEl = document.getElementById('f-tick');
+  const nameEl = document.getElementById('f-name');
+  const avgLabel = document.querySelector('label[for="f-avg"], #f-avg').previousElementSibling || document.querySelector('.fl');
   document.getElementById('name-hint').textContent = '';
+  if (mkt === 'GOLD') {
+    tickEl.value = 'GC';
+    tickEl.disabled = true;
+    nameEl.value = 'KRX금현물';
+    nameEl.disabled = true;
+  } else {
+    tickEl.disabled = false;
+    nameEl.disabled = false;
+    tickEl.value = '';
+    nameEl.value = '';
+    tickEl.placeholder = mkt === 'KR' ? '000660' : 'AAPL';
+  }
 }
 
 async function addStock() {
@@ -954,7 +1042,10 @@ async function addStock() {
     const tok = await getToken();
     if (tok) {
       const s = pf.find(x => x.id === id);
-      const p = s.market === 'KR' ? await fetchKR(tick, tok) : await fetchUS(tick, tok);
+      let p;
+      if (s.market === 'GOLD') p = await fetchGold(tok);
+      else if (s.market === 'KR') p = await fetchKR(tick, tok);
+      else p = await fetchUS(tick, tok);
       if (p) {
         px[id] = p;
         if (p.name && p.name !== tick) { s.name = p.name; save(); }
@@ -975,8 +1066,11 @@ function delStock(id) {
 
 // ── 모달 ──
 function openAddModal() {
+  document.getElementById('f-mkt').value = 'KR';
   document.getElementById('f-tick').value = '';
+  document.getElementById('f-tick').disabled = false;
   document.getElementById('f-name').value = '';
+  document.getElementById('f-name').disabled = false;
   document.getElementById('f-avg').value = '';
   document.getElementById('f-qty').value = '';
   document.getElementById('f-acct').value = '';
