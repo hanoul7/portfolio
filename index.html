@@ -491,21 +491,14 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
     <div class="modal-handle"></div>
     <div class="modal-title">종목 추가</div>
     <div class="form-grid">
+      <input type="hidden" id="f-mkt" value="KR" />
       <div class="ff form-full">
-        <label class="fl">시장</label>
-        <select id="f-mkt" onchange="onMktChange()">
-          <option value="KR">🇰🇷 한국 (KRX)</option>
-          <option value="US">🇺🇸 미국 (NYSE/NASDAQ)</option>
-          <option value="GOLD">🥇 KRX금현물</option>
-        </select>
+        <label class="fl">종목코드 / 티커 <span style="font-weight:400;font-size:10px;color:var(--text3)">숫자6자리=한국 · 영문=미국 · GOLD=금</span></label>
+        <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD" autocomplete="off" autocapitalize="characters" onblur="lookupName()" />
       </div>
-      <div class="ff">
-        <label class="fl">종목코드 / 티커</label>
-        <input id="f-tick" type="text" placeholder="000660" autocomplete="off" autocapitalize="characters" onblur="lookupName()" />
-      </div>
-      <div class="ff">
+      <div class="ff form-full">
         <label class="fl">종목명 <span id="name-hint" style="font-weight:400;font-size:10px"></span></label>
-        <input id="f-name" type="text" placeholder="티커 입력 후 자동완성" autocomplete="off" />
+        <input id="f-name" type="text" placeholder="티커 입력 후 자동완성" autocomplete="off" readonly />
       </div>
       <div class="ff">
         <label class="fl">평균 매입단가 (원)</label>
@@ -765,24 +758,22 @@ async function fetchUS(ticker, tok) {
   return null;
 }
 
-// ── 금현물: Yahoo Finance XAU=X (24시간 실시간) ──
+// ── 금현물: /api/gold-price (Yahoo Finance + metals.live fallback) ──
 async function fetchGold() {
   const TROY_OZ_TO_GRAM = 31.1034768;
   try {
-    const r = await fetch('/api/xau');
+    const r = await fetch('/api/gold-price');
     const d = await r.json();
-    console.log('[XAU] response status:', r.status);
-    const meta = d?.chart?.result?.[0]?.meta;
-    console.log('[XAU] meta:', JSON.stringify(meta).slice(0, 300));
-    if (meta?.regularMarketPrice > 0 && usdkrw > 0) {
-      xauUsd = meta.regularMarketPrice;
-      const prevClose = meta.chartPreviousClose || meta.previousClose || xauUsd;
-      const chg = ((xauUsd - prevClose) / prevClose) * 100;
+    console.log('[GOLD] response:', JSON.stringify(d));
+    if (d.price > 0 && usdkrw > 0) {
+      xauUsd = d.price;
+      const prevClose = d.prevClose || xauUsd;
+      const chg = d.prevClose ? ((xauUsd - prevClose) / prevClose) * 100 : 0;
       const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
       const prevPerGram = Math.round(prevClose * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
       return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: chg, name: '금현물(XAU)', estimated: false };
     }
-  } catch(e) { console.error('[XAU] fetch error:', e); }
+  } catch(e) { console.error('[GOLD] fetch error:', e); }
   return null;
 }
 
@@ -956,16 +947,36 @@ function renderSummary() {
 }
 
 // ── 종목명 자동조회 ──
+function detectMarket(tick) {
+  if (/^(GOLD|GLD)$/i.test(tick)) return 'GOLD';
+  if (/^\d{1,6}$/.test(tick)) return 'KR';
+  return 'US';
+}
+
 async function lookupName() {
   const tick = document.getElementById('f-tick').value.trim().toUpperCase();
-  const mkt = document.getElementById('f-mkt').value;
-  if (!tick || !appKey || !appSecret || mkt === 'GOLD') return;
+  if (!tick) return;
   const hint = document.getElementById('name-hint');
+  const nameEl = document.getElementById('f-name');
+  const mktEl = document.getElementById('f-mkt');
+  const mkt = detectMarket(tick);
+  mktEl.value = mkt;
+
+  // 금현물
+  if (mkt === 'GOLD') {
+    nameEl.value = '금현물(XAU)';
+    hint.textContent = '✓ 금현물';
+    hint.style.color = '#0a8a4a';
+    return;
+  }
+
+  if (!appKey || !appSecret) return;
   hint.textContent = '조회 중...';
   hint.style.color = 'var(--text3)';
   const tok = await getToken();
   if (!tok) { hint.textContent = ''; return; }
   let name = null;
+
   if (mkt === 'KR') {
     try {
       const code = tick.replace(/\D/g,'').padStart(6,'0');
@@ -994,39 +1005,21 @@ async function lookupName() {
     }
   }
   if (name && name.trim()) {
-    document.getElementById('f-name').value = name.trim();
+    nameEl.value = name.trim();
     hint.textContent = '✓ 자동완성';
     hint.style.color = '#0a8a4a';
   } else {
-    hint.textContent = '직접 입력해주세요';
+    hint.textContent = '종목을 찾을 수 없습니다';
     hint.style.color = '#8a8fa8';
   }
 }
 
 // ── 종목 추가/삭제 ──
-function onMktChange() {
-  const mkt = document.getElementById('f-mkt').value;
-  const tickEl = document.getElementById('f-tick');
-  const nameEl = document.getElementById('f-name');
-  const avgLabel = document.querySelector('label[for="f-avg"], #f-avg').previousElementSibling || document.querySelector('.fl');
-  document.getElementById('name-hint').textContent = '';
-  if (mkt === 'GOLD') {
-    tickEl.value = 'GC';
-    tickEl.disabled = true;
-    nameEl.value = 'KRX금현물';
-    nameEl.disabled = true;
-  } else {
-    tickEl.disabled = false;
-    nameEl.disabled = false;
-    tickEl.value = '';
-    nameEl.value = '';
-    tickEl.placeholder = mkt === 'KR' ? '000660' : 'AAPL';
-  }
-}
-
 async function addStock() {
-  const mkt = document.getElementById('f-mkt').value;
-  const tick = document.getElementById('f-tick').value.trim().toUpperCase();
+  let tick = document.getElementById('f-tick').value.trim().toUpperCase();
+  const mkt = detectMarket(tick);
+  document.getElementById('f-mkt').value = mkt;
+  if (mkt === 'GOLD') tick = 'GOLD';
   const name = document.getElementById('f-name').value.trim() || tick;
   const avg = parseFloat(document.getElementById('f-avg').value);
   const qty = parseInt(document.getElementById('f-qty').value);
@@ -1076,9 +1069,7 @@ function delStock(id) {
 function openAddModal() {
   document.getElementById('f-mkt').value = 'KR';
   document.getElementById('f-tick').value = '';
-  document.getElementById('f-tick').disabled = false;
   document.getElementById('f-name').value = '';
-  document.getElementById('f-name').disabled = false;
   document.getElementById('f-avg').value = '';
   document.getElementById('f-qty').value = '';
   document.getElementById('f-acct').value = '';
