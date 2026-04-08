@@ -501,11 +501,15 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
         <input id="f-name" type="text" placeholder="티커 입력 후 자동완성" autocomplete="off" readonly />
       </div>
       <div class="ff">
-        <label class="fl">평균 매입단가 (원)</label>
-        <input id="f-avg" type="number" placeholder="759742" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('f-qty').focus();}" />
+        <label class="fl" id="f-avg-label">평균 매입단가 (원)</label>
+        <input id="f-avg" type="number" placeholder="759742" inputmode="decimal" onkeydown="if(event.key==='Enter'){event.preventDefault();const fx=document.getElementById('f-avgfx');if(fx&&fx.offsetParent)fx.focus();else document.getElementById('f-qty').focus();}" />
+      </div>
+      <div class="ff" id="f-avgfx-wrap" style="display:none">
+        <label class="fl">매입 당시 환율 (원/달러)</label>
+        <input id="f-avgfx" type="number" placeholder="1380" inputmode="decimal" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('f-qty').focus();}" />
       </div>
       <div class="ff">
-        <label class="fl">보유 수량 (주)</label>
+        <label class="fl">보유 수량 (<span id="f-qty-unit">주</span>)</label>
         <input id="f-qty" type="number" placeholder="10" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
       </div>
       <div class="ff form-full">
@@ -530,11 +534,15 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
         <input id="e-label" type="text" disabled style="color:var(--text2);background:var(--bg4)" />
       </div>
       <div class="ff">
-        <label class="fl">평균 매입단가 (원)</label>
-        <input id="e-avg" type="number" inputmode="numeric" />
+        <label class="fl" id="e-avg-label">평균 매입단가 (원)</label>
+        <input id="e-avg" type="number" inputmode="decimal" />
+      </div>
+      <div class="ff" id="e-avgfx-wrap" style="display:none">
+        <label class="fl">매입 당시 환율 (원/달러)</label>
+        <input id="e-avgfx" type="number" inputmode="decimal" />
       </div>
       <div class="ff">
-        <label class="fl">보유 수량 (주)</label>
+        <label class="fl">보유 수량 (<span id="e-qty-unit">주</span>)</label>
         <input id="e-qty" type="number" inputmode="numeric" />
       </div>
       <div class="ff form-full">
@@ -836,7 +844,7 @@ function renderList() {
   cnt.textContent = `${pf.length}개 종목`;
   el.innerHTML = pf.map(s => {
     const p = px[s.id];
-    const cost = s.avg * s.qty;
+    const cost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
     const badge = s.market === 'GOLD'
       ? '<span class="badge badge-gold">GOLD</span>'
       : s.market === 'KR'
@@ -896,7 +904,7 @@ function renderList() {
           <div class="stock-name">${s.name} ${badge} ${acctHtml}</div>
           <div class="stock-meta">
             <span>${s.ticker}</span>
-            <span>평단 ${fmt(s.avg)}원</span>
+            <span>평단 ${s.market === 'US' ? '$' + s.avg.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(s.avg) + '원'}</span>
             <span>${s.qty}${unit}</span>
           </div>
         </div>
@@ -909,7 +917,8 @@ function renderList() {
 function renderSummary() {
   let totalCost = 0, totalEval = 0, todayPnl = 0, hasP = false, hasPrev = false;
   for (const s of pf) {
-    totalCost += s.avg * s.qty;
+    const sCost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
+    totalCost += sCost;
     const p = px[s.id];
     if (p) {
       hasP = true;
@@ -920,7 +929,7 @@ function renderSummary() {
         const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
         todayPnl += (p.priceKrw - prevKrw) / prevKrw * ev;
       }
-    } else totalEval += s.avg * s.qty;
+    } else totalEval += sCost;
   }
   const gain = totalEval - totalCost;
   const gainPct = totalCost > 0 ? (gain / totalCost) * 100 : 0;
@@ -954,6 +963,16 @@ async function lookupName() {
   const mktEl = document.getElementById('f-mkt');
   const mkt = detectMarket(tick);
   mktEl.value = mkt;
+
+  // US 주식이면 달러 입력 + 환율 칸 표시
+  const isUS = mkt === 'US';
+  document.getElementById('f-avg-label').textContent = isUS ? '평균 매입단가 (USD)' : '평균 매입단가 (원)';
+  document.getElementById('f-avg').placeholder = isUS ? '182.50' : '759742';
+  document.getElementById('f-avgfx-wrap').style.display = isUS ? '' : 'none';
+  if (isUS && !document.getElementById('f-avgfx').value) {
+    document.getElementById('f-avgfx').value = usdkrw > 0 ? Math.round(usdkrw) : '';
+  }
+  document.getElementById('f-qty-unit').textContent = mkt === 'GOLD' ? 'g' : '주';
 
   // 금현물
   if (mkt === 'GOLD') {
@@ -1007,18 +1026,22 @@ async function addStock() {
   const name = document.getElementById('f-name').value.trim() || tick;
   const avg = parseFloat(document.getElementById('f-avg').value);
   const qty = parseInt(document.getElementById('f-qty').value);
+  const avgFx = mkt === 'US' ? parseFloat(document.getElementById('f-avgfx').value) : 0;
   const acct = document.getElementById('f-acct').value.trim();
   const err = document.getElementById('add-err');
 
   if (!tick || isNaN(avg) || isNaN(qty) || avg <= 0 || qty <= 0) {
     err.textContent = '모든 항목을 입력해주세요'; return;
   }
+  if (mkt === 'US' && (isNaN(avgFx) || avgFx <= 0)) {
+    err.textContent = '매입 환율을 입력해주세요'; return;
+  }
   if (pf.find(s => s.ticker === tick && s.market === mkt && (s.acct || '') === acct)) {
     err.textContent = '이미 추가된 종목입니다 (같은 계좌)'; return;
   }
   err.textContent = '';
   const id = Date.now().toString();
-  pf.push({ id, market: mkt, ticker: tick, name, avg, qty, acct });
+  pf.push({ id, market: mkt, ticker: tick, name, avg, qty, acct, ...(mkt === 'US' ? { avgFx } : {}) });
   save();
   closeAddModal();
   render();
@@ -1054,7 +1077,12 @@ function openAddModal() {
   document.getElementById('f-mkt').value = 'KR';
   document.getElementById('f-tick').value = '';
   document.getElementById('f-name').value = '';
+  document.getElementById('f-avg-label').textContent = '평균 매입단가 (원)';
   document.getElementById('f-avg').value = '';
+  document.getElementById('f-avg').placeholder = '759742';
+  document.getElementById('f-avgfx-wrap').style.display = 'none';
+  document.getElementById('f-avgfx').value = '';
+  document.getElementById('f-qty-unit').textContent = '주';
   document.getElementById('f-qty').value = '';
   document.getElementById('f-acct').value = '';
   document.getElementById('add-err').textContent = '';
@@ -1069,8 +1097,13 @@ function openEditModal(id) {
   const s = pf.find(x => x.id === id);
   if (!s) return;
   editId = id;
+  const isUS = s.market === 'US';
   document.getElementById('e-label').value = `${s.name} (${s.ticker})`;
+  document.getElementById('e-avg-label').textContent = isUS ? '평균 매입단가 (USD)' : '평균 매입단가 (원)';
   document.getElementById('e-avg').value = s.avg;
+  document.getElementById('e-avgfx-wrap').style.display = isUS ? '' : 'none';
+  document.getElementById('e-avgfx').value = s.avgFx || '';
+  document.getElementById('e-qty-unit').textContent = s.market === 'GOLD' ? 'g' : '주';
   document.getElementById('e-qty').value = s.qty;
   document.getElementById('e-acct').value = s.acct || '';
   document.getElementById('edit-err').textContent = '';
@@ -1082,13 +1115,18 @@ function saveEdit() {
   if (!s) return;
   const avg = parseFloat(document.getElementById('e-avg').value);
   const qty = parseInt(document.getElementById('e-qty').value);
+  const avgFx = s.market === 'US' ? parseFloat(document.getElementById('e-avgfx').value) : 0;
   const acct = document.getElementById('e-acct').value.trim();
   const err = document.getElementById('edit-err');
   if (isNaN(avg) || isNaN(qty) || avg <= 0 || qty <= 0) {
     err.textContent = '평단과 수량을 확인해주세요'; return;
   }
+  if (s.market === 'US' && (isNaN(avgFx) || avgFx <= 0)) {
+    err.textContent = '매입 환율을 확인해주세요'; return;
+  }
   s.avg = avg;
   s.qty = qty;
+  if (s.market === 'US') s.avgFx = avgFx;
   s.acct = acct;
   save();
   closeEditModal();
