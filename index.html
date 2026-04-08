@@ -731,6 +731,7 @@ async function fetchUS(ticker) {
   try {
     const r = await fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}&market=US`);
     const d = await r.json();
+    console.log('[fetchUS]', ticker, '| marketState:', d.marketState, '| price:', d.price);
     if (d.price > 0) {
       const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
       return {
@@ -857,9 +858,10 @@ function renderList() {
       cardCls = gainCls;
 
       const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> XAU (P ${goldPremium.toFixed(2)})</span>` : '';
-      const msLabel = p.marketState === 'PRE' ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
-        : p.marketState === 'POST' ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
-        : p.marketState === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
+      const ms = (p.marketState || '').toUpperCase();
+      const msLabel = ms.includes('PRE') ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
+        : ms.includes('POST') ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
+        : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
       priceHtml = `
         <div class="stock-right">
           <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}${msLabel}</div>
