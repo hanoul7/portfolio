@@ -21,13 +21,23 @@ export default async function handler(req, res) {
       const d = await r.json();
       const meta = d?.chart?.result?.[0]?.meta;
       if (meta?.regularMarketPrice) {
-        console.log(`[quote] ${symbol} (${market}): $${meta.regularMarketPrice} via ${url.includes('query2') ? 'query2' : 'query1'}`);
+        console.log(`[quote] ${symbol} (${market}): $${meta.regularMarketPrice} | meta keys: ${Object.keys(meta).join(',')}`);
+        // currentTradingPeriod에서 마켓 상태 판별
+        const tp = meta.currentTradingPeriod;
+        let marketState = 'CLOSED';
+        if (tp) {
+          const now = Math.floor(Date.now() / 1000);
+          if (tp.regular && now >= tp.regular.start && now <= tp.regular.end) marketState = 'REGULAR';
+          else if (tp.pre && now >= tp.pre.start && now <= tp.pre.end) marketState = 'PRE';
+          else if (tp.post && now >= tp.post.start && now <= tp.post.end) marketState = 'POST';
+        }
+        console.log(`[quote] ${symbol} marketState: ${marketState}`);
         return res.json({
           price: meta.regularMarketPrice,
           prevClose: meta.chartPreviousClose || meta.previousClose,
           name: meta.longName || meta.shortName || null,
           currency: meta.currency,
-          marketState: meta.marketState
+          marketState
         });
       }
       errors.push(`${url.split('/')[2]}: price missing (status ${r.status})`);
