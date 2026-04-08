@@ -788,16 +788,24 @@ async function fetchRate() {
   if (appKey && appSecret) {
     try {
       const tok = await getToken();
+      console.log('[GLD] token:', tok ? 'OK' : 'MISSING');
       if (tok) {
-        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=GLD', {
+        const url = '/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=GLD';
+        console.log('[GLD] requesting:', url);
+        const r = await fetch(url, {
           headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
         });
+        console.log('[GLD] response status:', r.status, r.statusText);
         const d = await r.json();
+        console.log('[GLD] response body:', JSON.stringify(d).slice(0, 500));
         if (d?.output?.last && parseFloat(d.output.last) > 0) {
           xauUsd = parseFloat(d.output.last) / 0.0925;
+          console.log('[GLD] xauUsd calculated:', xauUsd);
+        } else {
+          console.warn('[GLD] output.last missing or 0:', d?.output?.last, '| rt_cd:', d?.rt_cd, '| msg1:', d?.msg1);
         }
       }
-    } catch(e) {}
+    } catch(e) { console.error('[GLD] fetch error:', e); }
   }
 }
 
