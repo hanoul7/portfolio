@@ -1009,8 +1009,12 @@ async function lookupName() {
         });
         const d = await r.json();
         const o = d?.output;
-        if (o && o.last) name = tick;
-      } catch(e) {}
+        console.log('[lookupName] EXCD=' + excd, 'SYMB=' + tick, '| output:', JSON.stringify(o).slice(0, 300));
+        if (o && (parseFloat(o.last) > 0 || parseFloat(o.base) > 0)) {
+          name = o.eng_item_name || o.hts_kor_isnm || o.prdt_name || tick;
+          console.log('[lookupName] matched:', name, '| excd:', excd);
+        }
+      } catch(e) { console.error('[lookupName] error:', excd, e); }
     }
   }
   if (name && name.trim()) {
