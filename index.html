@@ -577,6 +577,10 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
       <input type="checkbox" id="show-secret" onchange="toggleSecret()" style="width:16px;height:16px;accent-color:var(--accent)">
       <label for="show-secret" style="font-size:12px;color:var(--text3)">AppSecret 표시</label>
     </div>
+    <div class="ff" style="margin-bottom:16px">
+      <label class="fl">KRX금 프리미엄 (예: 1.02 = +2%)</label>
+      <input id="api-premium" type="number" step="0.01" placeholder="1.02" style="font-family:var(--mono);font-size:13px" />
+    </div>
     <div class="form-err" id="api-err"></div>
     <button class="btn-primary" onclick="saveApiKey()">저장 및 연결</button>
     <button class="btn-secondary" onclick="closeApiModal()">취소</button>
@@ -594,6 +598,7 @@ let appKey = '';
 let appSecret = '';
 let refreshing = false;
 let xauUsd = 0;
+let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '1.02');
 
 // ── 초기화 ──
 async function init() {
@@ -602,6 +607,7 @@ async function init() {
   appSecret = localStorage.getItem('kis_secret') || '';
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
+  document.getElementById('api-premium').value = goldPremium;
   render();
   if (appKey && appSecret) {
     setSt('loading', '토큰 발급 중...');
@@ -741,16 +747,14 @@ async function fetchUS(ticker, tok) {
   return null;
 }
 
-// ── 금현물: 국제금시세 기반 계산 ──
+// ── 금현물: GLD 역산 + 한국 프리미엄 ──
 async function fetchGold() {
   const TROY_OZ_TO_GRAM = 31.1034768;
-  console.log('[fetchGold] xauUsd =', xauUsd, ', usdkrw =', usdkrw);
   if (xauUsd > 0 && usdkrw > 0) {
-    const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM);
-    console.log('[fetchGold] pricePerGram =', pricePerGram);
+    const intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
+    const pricePerGram = Math.round(intlPerGram * goldPremium);
     return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: 0, changeRatio: 0, name: 'KRX금현물', estimated: true };
   }
-  console.warn('[fetchGold] 금시세 계산 불가 — xauUsd 또는 usdkrw가 0');
   return null;
 }
 
@@ -776,24 +780,9 @@ async function fetchRate() {
         const d = await r.json();
         if (d?.output?.last && parseFloat(d.output.last) > 0) {
           xauUsd = parseFloat(d.output.last) / 0.0925;
-          console.log('[fetchRate] xauUsd =', xauUsd, '(GLD', d.output.last, '/ 0.0925)');
         }
-        // ── 테스트: KRX 금현물 직접 조회 ──
-        // 테스트1: 금시장(X) GC
-        const r1 = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=X&fid_input_iscd=GC', {
-          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
-        });
-        const d1 = await r1.json();
-        console.log('[TEST] 금시장 X + GC:', JSON.stringify(d1));
-        // 테스트2: KRX금현물ETF 130960
-        const r2 = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=130960', {
-          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
-        });
-        const d2 = await r2.json();
-        console.log('[TEST] KRX J + 130960:', JSON.stringify(d2));
-        // ── 테스트 끝 ──
       }
-    } catch(e) { console.warn('[fetchRate] GLD failed:', e); }
+    } catch(e) {}
   }
 }
 
@@ -875,7 +864,7 @@ function renderList() {
       const gainCls = gain >= 0 ? 'up' : 'down';
       cardCls = gainCls;
 
-      const estLabel = s.market === 'GOLD' ? '<span style="font-size:10px;color:var(--gold)"> GLD기준</span>' : '';
+      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> GLD추정 (P ${goldPremium.toFixed(2)})</span>` : '';
       priceHtml = `
         <div class="stock-right">
           <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}</div>
@@ -1129,6 +1118,11 @@ function saveApiKey() {
   if (!k || k.length < 20) { err.textContent = 'AppKey를 확인해주세요'; return; }
   if (!s || s.length < 50) { err.textContent = 'AppSecret을 확인해주세요'; return; }
   err.textContent = '';
+  const prem = parseFloat(document.getElementById('api-premium').value);
+  if (prem > 0) {
+    goldPremium = prem;
+    try { localStorage.setItem('gold_premium', prem.toString()); } catch(e) {}
+  }
   appKey = k; appSecret = s;
   token = ''; tokenExp = 0;
   try { localStorage.setItem('kis_key', k); localStorage.setItem('kis_secret', s); } catch(e) {}
