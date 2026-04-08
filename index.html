@@ -765,21 +765,21 @@ async function fetchRate() {
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
-  // XAU/USD: KIS API 금선물(CME GC)
+  // XAU/USD: GLD ETF 역산 (GLD 1주 = 금 0.0925 트로이온스)
   if (appKey && appSecret) {
     try {
       const tok = await getToken();
       if (tok) {
-        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=CME&SYMB=GC', {
+        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=GLD', {
           headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
         });
         const d = await r.json();
         if (d?.output?.last && parseFloat(d.output.last) > 0) {
-          xauUsd = parseFloat(d.output.last);
-          console.log('[fetchRate] xauUsd =', xauUsd, '(KIS CME GC)');
+          xauUsd = parseFloat(d.output.last) / 0.0925;
+          console.log('[fetchRate] xauUsd =', xauUsd, '(GLD', d.output.last, '/ 0.0925)');
         }
       }
-    } catch(e) { console.warn('[fetchRate] KIS gold failed:', e); }
+    } catch(e) { console.warn('[fetchRate] GLD failed:', e); }
   }
 }
 
@@ -861,7 +861,7 @@ function renderList() {
       const gainCls = gain >= 0 ? 'up' : 'down';
       cardCls = gainCls;
 
-      const estLabel = (s.market === 'GOLD' && p.estimated) ? '<span style="font-size:10px;color:var(--gold)"> 추정</span>' : (s.market === 'GOLD' && !p.estimated) ? '<span style="font-size:10px;color:var(--up)"> 장중</span>' : '';
+      const estLabel = s.market === 'GOLD' ? '<span style="font-size:10px;color:var(--gold)"> GLD기준</span>' : '';
       priceHtml = `
         <div class="stock-right">
           <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}</div>
