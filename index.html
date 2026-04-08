@@ -584,6 +584,11 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
     <div class="form-err" id="api-err"></div>
     <button class="btn-primary" onclick="saveApiKey()">저장 및 연결</button>
     <button class="btn-secondary" onclick="closeApiModal()">취소</button>
+    <div style="display:flex;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <button class="btn-secondary" style="margin-top:0" onclick="exportData()">📥 내보내기</button>
+      <button class="btn-secondary" style="margin-top:0" onclick="document.getElementById('import-file').click()">📤 가져오기</button>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)" />
+    </div>
   </div>
 </div>
 
@@ -1143,6 +1148,53 @@ function saveApiKey() {
   } catch(e) {}
   closeApiModal();
   refreshAll();
+}
+
+// ── 데이터 내보내기/가져오기 ──
+function exportData() {
+  const data = {
+    appKey, appSecret,
+    portfolio: pf,
+    goldPremium
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  a.href = url;
+  a.download = `portfolio_backup_${date}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!confirm('기존 데이터를 덮어씁니다. 계속할까요?')) {
+    e.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (data.appKey) { appKey = data.appKey; localStorage.setItem('kis_key', appKey); document.getElementById('api-key').value = appKey; }
+      if (data.appSecret) { appSecret = data.appSecret; localStorage.setItem('kis_secret', appSecret); document.getElementById('api-secret').value = appSecret; }
+      if (Array.isArray(data.portfolio)) { pf = data.portfolio; save(); }
+      if (data.goldPremium > 0) { goldPremium = data.goldPremium; localStorage.setItem('gold_premium', goldPremium.toString()); document.getElementById('api-premium').value = goldPremium; }
+      token = ''; tokenExp = 0;
+      localStorage.removeItem('kis_token');
+      localStorage.removeItem('kis_token_exp');
+      px = {};
+      closeApiModal();
+      render();
+      if (appKey && appSecret) refreshAll();
+    } catch(err) {
+      document.getElementById('api-err').textContent = '파일 형식이 올바르지 않습니다';
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
 }
 
 // ── 모달 바깥 클릭으로 닫기 ──
