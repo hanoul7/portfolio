@@ -1,24 +1,33 @@
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  // 1차: Yahoo Finance XAU=X
-  try {
-    const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/XAU=X?interval=1m&range=1d', {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-    const d = await r.json();
-    const meta = d?.chart?.result?.[0]?.meta;
-    const price = meta?.regularMarketPrice;
-    const prevClose = meta?.chartPreviousClose || meta?.previousClose;
-    if (price) return res.json({ price, prevClose, source: 'yahoo' });
-  } catch(e) {}
+  const sources = [
+    { url: 'https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d', label: 'query2/GC=F' },
+    { url: 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d', label: 'query1/GC=F' },
+    { url: 'https://query2.finance.yahoo.com/v8/finance/chart/XAU=X?interval=1m&range=1d', label: 'query2/XAU=X' },
+  ];
 
-  // 2차: metals.live
-  try {
-    const r = await fetch('https://api.metals.live/v1/spot/gold');
-    const d = await r.json();
-    if (d?.[0]?.gold) return res.json({ price: d[0].gold, prevClose: null, source: 'metals' });
-  } catch(e) {}
+  const errors = [];
 
-  return res.status(500).json({ error: 'gold price unavailable' });
+  for (const { url, label } of sources) {
+    try {
+      const r = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
+      });
+      const d = await r.json();
+      const meta = d?.chart?.result?.[0]?.meta;
+      const price = meta?.regularMarketPrice;
+      const prevClose = meta?.chartPreviousClose || meta?.previousClose;
+      if (price > 0) {
+        console.log(`[gold-price] OK from ${label}: $${price}`);
+        return res.json({ price, prevClose, source: label });
+      }
+      errors.push(`${label}: price=${price} (status ${r.status})`);
+    } catch(e) {
+      errors.push(`${label}: ${e.message}`);
+    }
+  }
+
+  console.log('[gold-price] all sources failed:', errors.join(' | '));
+  return res.status(500).json({ error: 'gold price unavailable', details: errors });
 }
