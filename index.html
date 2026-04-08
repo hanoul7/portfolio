@@ -11,23 +11,23 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0a0c10;
-  --bg2: #111318;
-  --bg3: #181c24;
-  --bg4: #1e2330;
-  --border: rgba(255,255,255,0.07);
-  --border2: rgba(255,255,255,0.12);
-  --text: #e8edf5;
-  --text2: #7a8299;
-  --text3: #3d4460;
-  --up: #3dd68c;
-  --up-dim: rgba(61,214,140,0.1);
-  --down: #f16868;
-  --down-dim: rgba(241,104,104,0.1);
-  --accent: #5b8def;
-  --accent-dim: rgba(91,141,239,0.12);
-  --gold: #f0c060;
-  --gold-dim: rgba(240,192,96,0.1);
+  --bg: #f5f7fa;
+  --bg2: #ffffff;
+  --bg3: #f0f2f5;
+  --bg4: #e8eaed;
+  --border: rgba(0,0,0,0.08);
+  --border2: rgba(0,0,0,0.14);
+  --text: #1a1d23;
+  --text2: #4a5068;
+  --text3: #8a8fa8;
+  --up: #0a8a4a;
+  --up-dim: rgba(10,138,74,0.08);
+  --down: #d63030;
+  --down-dim: rgba(214,48,48,0.08);
+  --accent: #2563eb;
+  --accent-dim: rgba(37,99,235,0.08);
+  --gold: #b45309;
+  --gold-dim: rgba(180,83,9,0.08);
   --mono: 'DM Mono', monospace;
   --sans: 'Noto Sans KR', sans-serif;
   --r: 14px;
@@ -499,11 +499,11 @@ main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
       </div>
       <div class="ff">
         <label class="fl">종목코드 / 티커</label>
-        <input id="f-tick" type="text" placeholder="000660" autocomplete="off" autocapitalize="characters" />
+        <input id="f-tick" type="text" placeholder="000660" autocomplete="off" autocapitalize="characters" onblur="lookupName()" />
       </div>
       <div class="ff">
-        <label class="fl">종목명</label>
-        <input id="f-name" type="text" placeholder="SK하이닉스" autocomplete="off" />
+        <label class="fl">종목명 <span id="name-hint" style="font-weight:400;font-size:10px"></span></label>
+        <input id="f-name" type="text" placeholder="티커 입력 후 자동완성" autocomplete="off" />
       </div>
       <div class="ff">
         <label class="fl">평균 매입단가 (원)</label>
@@ -842,9 +842,50 @@ function renderSummary() {
   document.getElementById('s-time').textContent = hasPrev ? '전일 대비' : '';
 }
 
+// ── 종목명 자동조회 ──
+async function lookupName() {
+  const tick = document.getElementById('f-tick').value.trim().toUpperCase();
+  const mkt = document.getElementById('f-mkt').value;
+  if (!tick || !appKey || !appSecret) return;
+  const hint = document.getElementById('name-hint');
+  hint.textContent = '조회 중...';
+  hint.style.color = 'var(--text3)';
+  const tok = await getToken();
+  if (!tok) { hint.textContent = ''; return; }
+  let name = null;
+  if (mkt === 'KR') {
+    try {
+      const code = tick.replace(/\D/g,'').padStart(6,'0');
+      const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd='+code, {
+        headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
+      });
+      const d = await r.json();
+      name = d && d.output && d.output.hts_kor_isnm;
+    } catch(e) {}
+  } else {
+    try {
+      const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB='+tick, {
+        headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
+      });
+      const d = await r.json();
+      name = d && d.output && (d.output.korname || d.output.rsym);
+    } catch(e) {}
+  }
+  if (name && name.trim()) {
+    document.getElementById('f-name').value = name.trim();
+    hint.textContent = '✓ 자동완성';
+    hint.style.color = '#0a8a4a';
+  } else {
+    hint.textContent = '직접 입력해주세요';
+    hint.style.color = '#8a8fa8';
+  }
+}
+
 // ── 종목 추가/삭제 ──
 function onMktChange() {
   document.getElementById('f-tick').placeholder = document.getElementById('f-mkt').value === 'KR' ? '000660' : 'AAPL';
+  document.getElementById('f-name').value = '';
+  document.getElementById('name-hint').textContent = '';
 }
 
 async function addStock() {
