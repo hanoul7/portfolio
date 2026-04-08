@@ -590,7 +590,7 @@ function setSt(type, txt) {
 async function getToken() {
   if (token && Date.now() < tokenExp) return token;
   try {
-    const r = await fetch('https://openapi.koreainvestment.com:9443/oauth2/tokenP', {
+    const r = await fetch('/api/kis/oauth2/tokenP', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -614,7 +614,7 @@ async function fetchKR(ticker, tok) {
   const code = ticker.replace(/\D/g, '').padStart(6, '0');
   try {
     const r = await fetch(
-      `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
+      `/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
       { headers: {
         'authorization': `Bearer ${tok}`,
         'appkey': appKey,
@@ -639,7 +639,7 @@ async function fetchKR(ticker, tok) {
 async function fetchUS(ticker, tok) {
   try {
     const r = await fetch(
-      `https://openapi.koreainvestment.com:9443/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=${ticker}`,
+      `/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=${ticker}`,
       { headers: {
         'authorization': `Bearer ${tok}`,
         'appkey': appKey,
@@ -666,7 +666,7 @@ async function fetchUS(ticker, tok) {
   // NYSE 시도
   try {
     const r = await fetch(
-      `https://openapi.koreainvestment.com:9443/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NYS&SYMB=${ticker}`,
+      `/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NYS&SYMB=${ticker}`,
       { headers: {
         'authorization': `Bearer ${tok}`,
         'appkey': appKey,
