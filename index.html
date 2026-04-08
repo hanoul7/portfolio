@@ -594,16 +594,6 @@ let appKey = '';
 let appSecret = '';
 let refreshing = false;
 let xauUsd = 0;
-let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '0');
-
-// ── KRX금 장중 판단 ──
-function isGoldMarketOpen() {
-  const now = new Date();
-  const day = now.getDay();
-  if (day === 0 || day === 6) return false;
-  const hhmm = now.getHours() * 100 + now.getMinutes();
-  return hhmm >= 900 && hhmm < 1530;
-}
 
 // ── 초기화 ──
 function init() {
@@ -733,51 +723,13 @@ async function fetchUS(ticker, tok) {
   return null;
 }
 
-// ── KIS API: KRX금현물 현재가 ──
-async function fetchGold(tok) {
+// ── 금현물: 국제금시세 기반 계산 ──
+async function fetchGold() {
   const TROY_OZ_TO_GRAM = 31.1034768;
-  let krxPrice = null;
-  let estimated = false;
-
-  // 장중이면 KIS API로 KRX금현물 조회
-  if (isGoldMarketOpen()) {
-    try {
-      const r = await fetch(
-        '/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=X&fid_input_iscd=GC',
-        { headers: {
-          'authorization': `Bearer ${tok}`,
-          'appkey': appKey,
-          'appsecret': appSecret,
-          'tr_id': 'FHKST01010100',
-          'custtype': 'P'
-        }}
-      );
-      const d = await r.json();
-      const o = d?.output;
-      if (o && o.stck_prpr) {
-        krxPrice = parseInt(o.stck_prpr);
-        const prev = parseInt(o.stck_sdpr || o.stck_prpr);
-        // 장중: 프리미엄 계산 후 저장
-        if (xauUsd > 0 && usdkrw > 0) {
-          const intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
-          if (intlPerGram > 0) {
-            goldPremium = krxPrice / intlPerGram;
-            try { localStorage.setItem('gold_premium', goldPremium.toString()); } catch(e) {}
-          }
-        }
-        const chg = prev > 0 ? ((krxPrice - prev) / prev) * 100 : 0;
-        return { priceKrw: krxPrice, priceLocal: krxPrice, prevClose: prev, changeRatio: chg, name: 'KRX금현물', estimated: false };
-      }
-    } catch(e) {}
+  if (xauUsd > 0 && usdkrw > 0) {
+    const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM);
+    return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: 0, changeRatio: 0, name: 'KRX금현물', estimated: true };
   }
-
-  // 장외: 국제금시세 × 환율 × 프리미엄으로 추정가 계산
-  if (xauUsd > 0 && usdkrw > 0 && goldPremium > 0) {
-    const intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
-    krxPrice = Math.round(intlPerGram * goldPremium);
-    return { priceKrw: krxPrice, priceLocal: krxPrice, prevClose: 0, changeRatio: 0, name: 'KRX금현물', estimated: true };
-  }
-
   return null;
 }
 
@@ -817,7 +769,7 @@ async function refreshAll() {
   for (const s of pf) {
     const cacheKey = s.market + ':' + s.ticker;
     if (!(cacheKey in cache)) {
-      if (s.market === 'GOLD') cache[cacheKey] = await fetchGold(tok);
+      if (s.market === 'GOLD') cache[cacheKey] = await fetchGold();
       else if (s.market === 'KR') cache[cacheKey] = await fetchKR(s.ticker, tok);
       else cache[cacheKey] = await fetchUS(s.ticker, tok);
     }
@@ -1047,7 +999,7 @@ async function addStock() {
     if (tok) {
       const s = pf.find(x => x.id === id);
       let p;
-      if (s.market === 'GOLD') p = await fetchGold(tok);
+      if (s.market === 'GOLD') p = await fetchGold();
       else if (s.market === 'KR') p = await fetchKR(tick, tok);
       else p = await fetchUS(tick, tok);
       if (p) {
