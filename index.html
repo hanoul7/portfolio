@@ -778,6 +778,20 @@ async function fetchRate() {
           xauUsd = parseFloat(d.output.last) / 0.0925;
           console.log('[fetchRate] xauUsd =', xauUsd, '(GLD', d.output.last, '/ 0.0925)');
         }
+        // ── 테스트: KRX 금현물 직접 조회 ──
+        // 테스트1: 금시장(X) GC
+        const r1 = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=X&fid_input_iscd=GC', {
+          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
+        });
+        const d1 = await r1.json();
+        console.log('[TEST] 금시장 X + GC:', JSON.stringify(d1));
+        // 테스트2: KRX금현물ETF 130960
+        const r2 = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=130960', {
+          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
+        });
+        const d2 = await r2.json();
+        console.log('[TEST] KRX J + 130960:', JSON.stringify(d2));
+        // ── 테스트 끝 ──
       }
     } catch(e) { console.warn('[fetchRate] GLD failed:', e); }
   }
