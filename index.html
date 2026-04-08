@@ -691,6 +691,7 @@ async function fetchKR(ticker, tok) {
     const r = await fetch(
       `/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
       { headers: {
+        'content-type': 'application/json; charset=utf-8',
         'authorization': `Bearer ${tok}`,
         'appkey': appKey,
         'appsecret': appSecret,
@@ -716,6 +717,7 @@ async function fetchUS(ticker, tok) {
     const r = await fetch(
       `/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=${ticker}`,
       { headers: {
+        'content-type': 'application/json; charset=utf-8',
         'authorization': `Bearer ${tok}`,
         'appkey': appKey,
         'appsecret': appSecret,
@@ -743,6 +745,7 @@ async function fetchUS(ticker, tok) {
     const r = await fetch(
       `/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NYS&SYMB=${ticker}`,
       { headers: {
+        'content-type': 'application/json; charset=utf-8',
         'authorization': `Bearer ${tok}`,
         'appkey': appKey,
         'appsecret': appSecret,
@@ -793,7 +796,7 @@ async function fetchRate() {
         const url = '/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=GLD';
         console.log('[GLD] requesting:', url);
         const r = await fetch(url, {
-          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
+          headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
         });
         console.log('[GLD] response status:', r.status, r.statusText);
         const d = await r.json();
@@ -980,7 +983,7 @@ async function lookupName() {
     try {
       const code = tick.replace(/\D/g,'').padStart(6,'0');
       const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
-        headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
+        headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
       });
       const d = await r.json();
       const o = d?.output;
@@ -991,7 +994,7 @@ async function lookupName() {
       if (name) break;
       try {
         const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD='+excd+'&SYMB='+tick, {
-          headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
+          headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
         });
         const d = await r.json();
         const o = d?.output;
