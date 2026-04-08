@@ -677,82 +677,70 @@ async function getToken() {
   return null;
 }
 
-// ── KIS API: 한국 주식 현재가 ──
+// ── 한국 장중 여부 (09:00~15:30 KST) ──
+function isKrMarketOpen() {
+  const now = new Date();
+  const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const h = kst.getHours(), m = kst.getMinutes();
+  const day = kst.getDay();
+  if (day === 0 || day === 6) return false;
+  return (h > 9 || (h === 9 && m >= 0)) && (h < 15 || (h === 15 && m <= 30));
+}
+
+// ── 한국 주식 현재가 ──
 async function fetchKR(ticker, tok) {
   const code = ticker.replace(/\D/g, '').padStart(6, '0');
+  // 장중: KIS API
+  if (isKrMarketOpen() && tok) {
+    try {
+      const r = await fetch(
+        `/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
+        { headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'authorization': `Bearer ${tok}`,
+          'appkey': appKey,
+          'appsecret': appSecret,
+          'tr_id': 'FHKST01010100',
+          'custtype': 'P'
+        }}
+      );
+      const d = await r.json();
+      const o = d?.output;
+      if (o && o.stck_prpr) {
+        const price = parseInt(o.stck_prpr);
+        const prev = parseInt(o.stck_sdpr || o.stck_prpr);
+        const chg = ((price - prev) / prev) * 100;
+        return { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || ticker };
+      }
+    } catch(e) {}
+  }
+  // 장외: Yahoo Finance
   try {
-    const r = await fetch(
-      `/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
-      { headers: {
-        'content-type': 'application/json; charset=utf-8',
-        'authorization': `Bearer ${tok}`,
-        'appkey': appKey,
-        'appsecret': appSecret,
-        'tr_id': 'FHKST01010100',
-        'custtype': 'P'
-      }}
-    );
+    const r = await fetch(`/api/quote?symbol=${code}&market=KR`);
     const d = await r.json();
-    const o = d?.output;
-    if (o && o.stck_prpr) {
-      const price = parseInt(o.stck_prpr);
-      const prev = parseInt(o.stck_sdpr || o.stck_prpr);
-      const chg = ((price - prev) / prev) * 100;
-      return { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || ticker };
+    if (d.price > 0) {
+      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
+      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: d.name || ticker, marketState: d.marketState };
     }
   } catch(e) {}
   return null;
 }
 
-// ── KIS API: 미국 주식 현재가 ──
-async function fetchUS(ticker, tok) {
+// ── 미국 주식 현재가 (Yahoo Finance) ──
+async function fetchUS(ticker) {
   try {
-    const r = await fetch(
-      `/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=${ticker}`,
-      { headers: {
-        'content-type': 'application/json; charset=utf-8',
-        'authorization': `Bearer ${tok}`,
-        'appkey': appKey,
-        'appsecret': appSecret,
-        'tr_id': 'HHDFS00000300',
-        'custtype': 'P'
-      }}
-    );
+    const r = await fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}&market=US`);
     const d = await r.json();
-    const o = d?.output;
-    if (o && o.last) {
-      const priceUSD = parseFloat(o.last);
-      const prevUSD = parseFloat(o.base || o.last);
-      const chg = ((priceUSD - prevUSD) / prevUSD) * 100;
+    if (d.price > 0) {
+      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
       return {
-        priceKrw: priceUSD * usdkrw,
-        priceLocal: priceUSD,
-        prevClose: prevUSD,
+        priceKrw: d.price * usdkrw,
+        priceLocal: d.price,
+        prevClose: d.prevClose || d.price,
         changeRatio: chg,
-        name: ticker
+        name: d.name || ticker,
+        marketState: d.marketState
       };
-    }
-  } catch(e) {}
-  // NYSE 시도
-  try {
-    const r = await fetch(
-      `/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NYS&SYMB=${ticker}`,
-      { headers: {
-        'content-type': 'application/json; charset=utf-8',
-        'authorization': `Bearer ${tok}`,
-        'appkey': appKey,
-        'appsecret': appSecret,
-        'tr_id': 'HHDFS00000300',
-        'custtype': 'P'
-      }}
-    );
-    const d = await r.json();
-    const o = d?.output;
-    if (o && o.last) {
-      const priceUSD = parseFloat(o.last);
-      const prevUSD = parseFloat(o.base || o.last);
-      const chg = ((priceUSD - prevUSD) / prevUSD) * 100;
-      return { priceKrw: priceUSD * usdkrw, priceLocal: priceUSD, prevClose: prevUSD, changeRatio: chg, name: ticker };
     }
   } catch(e) {}
   return null;
@@ -810,7 +798,7 @@ async function refreshAll() {
     if (!(cacheKey in cache)) {
       if (s.market === 'GOLD') cache[cacheKey] = await fetchGold();
       else if (s.market === 'KR') cache[cacheKey] = await fetchKR(s.ticker, tok);
-      else cache[cacheKey] = await fetchUS(s.ticker, tok);
+      else cache[cacheKey] = await fetchUS(s.ticker);
     }
     const p = cache[cacheKey];
     if (p) {
@@ -869,9 +857,12 @@ function renderList() {
       cardCls = gainCls;
 
       const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> XAU (P ${goldPremium.toFixed(2)})</span>` : '';
+      const msLabel = p.marketState === 'PRE' ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
+        : p.marketState === 'POST' ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
+        : p.marketState === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
       priceHtml = `
         <div class="stock-right">
-          <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}</div>
+          <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}${msLabel}</div>
           <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
         </div>`;
 
@@ -1037,7 +1028,7 @@ async function addStock() {
       let p;
       if (s.market === 'GOLD') p = await fetchGold();
       else if (s.market === 'KR') p = await fetchKR(tick, tok);
-      else p = await fetchUS(tick, tok);
+      else p = await fetchUS(tick);
       if (p) {
         px[id] = p;
         if (p.name && p.name !== tick) { s.name = p.name; save(); }
