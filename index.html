@@ -605,12 +605,13 @@ async function init() {
   try { pf = JSON.parse(localStorage.getItem('pf_kis') || '[]'); } catch(e) { pf = []; }
   appKey = localStorage.getItem('kis_key') || '';
   appSecret = localStorage.getItem('kis_secret') || '';
+  loadToken();
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
   document.getElementById('api-premium').value = goldPremium;
   render();
   if (appKey && appSecret) {
-    setSt('loading', '토큰 발급 중...');
+    setSt('loading', token ? '저장된 토큰 사용' : '토큰 발급 중...');
     const tok = await getToken();
     if (tok) {
       setSt('ok', '연결됨');
@@ -638,8 +639,18 @@ function setSt(type, txt) {
   document.getElementById('status-txt').textContent = txt;
 }
 
-// ── KIS API: 토큰 발급 ──
-async function requestToken() {
+// ── KIS API: 토큰 관리 ──
+function loadToken() {
+  const saved = localStorage.getItem('kis_token');
+  const exp = parseInt(localStorage.getItem('kis_token_exp') || '0');
+  if (saved && exp > Date.now()) {
+    token = saved;
+    tokenExp = exp;
+  }
+}
+
+async function getToken() {
+  if (token && Date.now() < tokenExp) return token;
   try {
     const r = await fetch('/api/kis/oauth2/tokenP', {
       method: 'POST',
@@ -650,23 +661,22 @@ async function requestToken() {
         appsecret: appSecret
       })
     });
+    if (r.status === 403) {
+      setSt('error', 'API 키 오류 또는 토큰 제한');
+      return null;
+    }
     const d = await r.json();
     if (d.access_token) {
       token = d.access_token;
-      tokenExp = Date.now() + (d.expires_in ? d.expires_in * 1000 : 3600000) - 60000;
+      tokenExp = Date.now() + 23 * 60 * 60 * 1000;
+      try {
+        localStorage.setItem('kis_token', token);
+        localStorage.setItem('kis_token_exp', tokenExp.toString());
+      } catch(e) {}
       return token;
     }
   } catch(e) {}
   return null;
-}
-
-async function getToken() {
-  if (token && Date.now() < tokenExp) return token;
-  const tok = await requestToken();
-  if (tok) return tok;
-  // 실패 시 3초 후 1회 재시도
-  await new Promise(r => setTimeout(r, 3000));
-  return await requestToken();
 }
 
 // ── KIS API: 한국 주식 현재가 ──
@@ -1125,7 +1135,12 @@ function saveApiKey() {
   }
   appKey = k; appSecret = s;
   token = ''; tokenExp = 0;
-  try { localStorage.setItem('kis_key', k); localStorage.setItem('kis_secret', s); } catch(e) {}
+  try {
+    localStorage.setItem('kis_key', k);
+    localStorage.setItem('kis_secret', s);
+    localStorage.removeItem('kis_token');
+    localStorage.removeItem('kis_token_exp');
+  } catch(e) {}
   closeApiModal();
   refreshAll();
 }
