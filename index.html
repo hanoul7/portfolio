@@ -801,11 +801,22 @@ async function fetchRate() {
         console.log('[GLD] response status:', r.status, r.statusText);
         const d = await r.json();
         console.log('[GLD] response body:', JSON.stringify(d).slice(0, 500));
-        if (d?.output?.last && parseFloat(d.output.last) > 0) {
-          xauUsd = parseFloat(d.output.last) / 0.0925;
-          console.log('[GLD] xauUsd calculated:', xauUsd);
+        const out = d?.output;
+        const lastVal = parseFloat(out?.last) || 0;
+        const baseVal = parseFloat(out?.base) || 0;
+        const gldPrice = lastVal > 0 ? lastVal : baseVal > 0 ? baseVal : 0;
+        if (gldPrice > 0) {
+          xauUsd = gldPrice / 0.0925;
+          localStorage.setItem('lastGldPrice', String(gldPrice));
+          console.log('[GLD] xauUsd calculated:', xauUsd, '| source:', lastVal > 0 ? 'last' : 'base');
         } else {
-          console.warn('[GLD] output.last missing or 0:', d?.output?.last, '| rt_cd:', d?.rt_cd, '| msg1:', d?.msg1);
+          const saved = parseFloat(localStorage.getItem('lastGldPrice')) || 0;
+          if (saved > 0) {
+            xauUsd = saved / 0.0925;
+            console.warn('[GLD] using localStorage fallback:', saved, '| xauUsd:', xauUsd);
+          } else {
+            console.warn('[GLD] no price available | last:', out?.last, '| base:', out?.base, '| rt_cd:', d?.rt_cd, '| msg1:', d?.msg1);
+          }
         }
       }
     } catch(e) { console.error('[GLD] fetch error:', e); }
