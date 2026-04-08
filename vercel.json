@@ -3,6 +3,10 @@
     {
       "source": "/api/kis/:path*",
       "destination": "https://openapi.koreainvestment.com:9443/:path*"
+    },
+    {
+      "source": "/api/xau",
+      "destination": "https://query1.finance.yahoo.com/v8/finance/chart/XAU=X?interval=1m&range=1d"
     }
   ],
   "headers": [

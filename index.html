@@ -765,14 +765,24 @@ async function fetchUS(ticker, tok) {
   return null;
 }
 
-// ── 금현물: GLD 역산 + 한국 프리미엄 ──
+// ── 금현물: Yahoo Finance XAU=X (24시간 실시간) ──
 async function fetchGold() {
   const TROY_OZ_TO_GRAM = 31.1034768;
-  if (xauUsd > 0 && usdkrw > 0) {
-    const intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
-    const pricePerGram = Math.round(intlPerGram * goldPremium);
-    return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: 0, changeRatio: 0, name: 'KRX금현물', estimated: true };
-  }
+  try {
+    const r = await fetch('/api/xau');
+    const d = await r.json();
+    console.log('[XAU] response status:', r.status);
+    const meta = d?.chart?.result?.[0]?.meta;
+    console.log('[XAU] meta:', JSON.stringify(meta).slice(0, 300));
+    if (meta?.regularMarketPrice > 0 && usdkrw > 0) {
+      xauUsd = meta.regularMarketPrice;
+      const prevClose = meta.chartPreviousClose || meta.previousClose || xauUsd;
+      const chg = ((xauUsd - prevClose) / prevClose) * 100;
+      const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
+      const prevPerGram = Math.round(prevClose * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
+      return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: chg, name: '금현물(XAU)', estimated: false };
+    }
+  } catch(e) { console.error('[XAU] fetch error:', e); }
   return null;
 }
 
@@ -787,40 +797,6 @@ async function fetchRate() {
       document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
     }
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
-  // XAU/USD: GLD ETF 역산 (GLD 1주 = 금 0.0925 트로이온스)
-  if (appKey && appSecret) {
-    try {
-      const tok = await getToken();
-      console.log('[GLD] token:', tok ? 'OK' : 'MISSING');
-      if (tok) {
-        const url = '/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD=NAS&SYMB=GLD';
-        console.log('[GLD] requesting:', url);
-        const r = await fetch(url, {
-          headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'HHDFS00000300', 'custtype': 'P' }
-        });
-        console.log('[GLD] response status:', r.status, r.statusText);
-        const d = await r.json();
-        console.log('[GLD] response body:', JSON.stringify(d).slice(0, 500));
-        const out = d?.output;
-        const lastVal = parseFloat(out?.last) || 0;
-        const baseVal = parseFloat(out?.base) || 0;
-        const gldPrice = lastVal > 0 ? lastVal : baseVal > 0 ? baseVal : 0;
-        if (gldPrice > 0) {
-          xauUsd = gldPrice / 0.0925;
-          localStorage.setItem('lastGldPrice', String(gldPrice));
-          console.log('[GLD] xauUsd calculated:', xauUsd, '| source:', lastVal > 0 ? 'last' : 'base');
-        } else {
-          const saved = parseFloat(localStorage.getItem('lastGldPrice')) || 0;
-          if (saved > 0) {
-            xauUsd = saved / 0.0925;
-            console.warn('[GLD] using localStorage fallback:', saved, '| xauUsd:', xauUsd);
-          } else {
-            console.warn('[GLD] no price available | last:', out?.last, '| base:', out?.base, '| rt_cd:', d?.rt_cd, '| msg1:', d?.msg1);
-          }
-        }
-      }
-    } catch(e) { console.error('[GLD] fetch error:', e); }
-  }
 }
 
 // ── 전체 새로고침 ──
@@ -901,7 +877,7 @@ function renderList() {
       const gainCls = gain >= 0 ? 'up' : 'down';
       cardCls = gainCls;
 
-      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> GLD추정 (P ${goldPremium.toFixed(2)})</span>` : '';
+      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> XAU (P ${goldPremium.toFixed(2)})</span>` : '';
       priceHtml = `
         <div class="stock-right">
           <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}</div>
