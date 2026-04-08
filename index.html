@@ -856,12 +856,12 @@ async function lookupName() {
   if (mkt === 'KR') {
     try {
       const code = tick.replace(/\D/g,'').padStart(6,'0');
-      const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd='+code, {
-        headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
+      const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
+        headers: { 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
       });
       const d = await r.json();
       const o = d?.output;
-      if (o && o.stck_prpr) name = o.hts_kor_isnm || tick;
+      if (o && o.prdt_abrv_name) name = o.prdt_abrv_name;
     } catch(e) {}
   } else {
     for (const excd of ['NAS', 'NYS', 'AMS']) {
