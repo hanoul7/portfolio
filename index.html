@@ -767,7 +767,7 @@ async function fetchRate() {
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
   // XAU/USD: metals.live → goldprice.org 순서
   try {
-    const r = await fetch('https://api.metals.live/v1/spot/gold');
+    const r = await fetch('/api/gold');
     const d = await r.json();
     if (Array.isArray(d) && d[0]?.gold > 0) {
       xauUsd = d[0].gold;
