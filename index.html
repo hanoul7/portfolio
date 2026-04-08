@@ -1213,14 +1213,17 @@ function importData(e) {
 }
 
 // ── 모달 바깥 클릭으로 닫기 ──
-document.getElementById('add-modal').addEventListener('click', e => {
-  if (e.target === document.getElementById('add-modal')) closeAddModal();
-});
-document.getElementById('edit-modal').addEventListener('click', e => {
-  if (e.target === document.getElementById('edit-modal')) closeEditModal();
-});
-document.getElementById('api-modal').addEventListener('click', e => {
-  if (e.target === document.getElementById('api-modal')) closeApiModal();
+['add-modal','edit-modal','api-modal'].forEach(id => {
+  const el = document.getElementById(id);
+  let downOnOverlay = false;
+  el.addEventListener('mousedown', e => { downOnOverlay = e.target === el; });
+  el.addEventListener('click', e => {
+    if (downOnOverlay && e.target === el) {
+      if (id === 'add-modal') closeAddModal();
+      else if (id === 'edit-modal') closeEditModal();
+      else closeApiModal();
+    }
+  });
 });
 
 // ── 자동 갱신 3분 ──
