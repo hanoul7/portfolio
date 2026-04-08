@@ -767,7 +767,7 @@ async function fetchRate() {
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
   // XAU/USD: gold-api.com
   try {
-    const r = await fetch('https://gold-api.com/price/XAU');
+    const r = await fetch('/api/gold');
     const d = await r.json();
     if (d?.price > 0) {
       xauUsd = d.price;

@@ -3,6 +3,10 @@
     {
       "source": "/api/kis/:path*",
       "destination": "https://openapi.koreainvestment.com:9443/:path*"
+    },
+    {
+      "source": "/api/gold",
+      "destination": "https://gold-api.com/price/XAU"
     }
   ],
   "headers": [
