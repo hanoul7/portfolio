@@ -1443,13 +1443,58 @@ function renderSummary() {
       const bg = yearGain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
       const borderClr = yearGain >= 0 ? `rgba(16,185,129,${(0.2 + intensity * 0.3).toFixed(2)})` : `rgba(239,68,68,${(0.2 + intensity * 0.3).toFixed(2)})`;
       let subParts = [`${yearPctVal >= 0 ? '+' : ''}${yearPctVal.toFixed(2)}%`];
-      html = `<div class="summary-row" style="margin-bottom:14px">
+      // 세후 실제 손익 계산
+      let totalFee = 0, totalTax = 0;
+      for (const ya of yearAccounts) {
+        const am = acctMap[ya.name];
+        if (!am) continue;
+        const acctEval = am.eval;
+        // 수수료: 평가액 × 수수료율
+        if (ya.feeRate > 0) totalFee += acctEval * (ya.feeRate / 100);
+        // 세금: 계좌별 금년 양도익 × 세율 (양도익이 양수일 때만)
+        if (ya.taxRate > 0) {
+          const curPnl = am.eval - am.cost;
+          let acctFx = 0;
+          if (ya.yearEndFx > 0) {
+            for (const s of pf) {
+              if (s.acct === ya.name && s.market === 'US') {
+                const p = px[s.id];
+                if (p) acctFx += (p.priceLocal || 0) * s.qty * (usdkrw - ya.yearEndFx);
+              }
+            }
+          }
+          const acctYearGain = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0) + acctFx;
+          if (acctYearGain > 0) totalTax += acctYearGain * (ya.taxRate / 100);
+        }
+      }
+      const netGain = yearGain - totalFee - totalTax;
+      const netCls = netGain >= 0 ? 'up' : 'down';
+
+      html = `<div class="summary-row" style="margin-bottom:6px">
         <div class="year-card-hero summary-wide" style="transition:background 0.3s,border-color 0.3s;background:${bg};border-color:${borderClr}">
           <div class="card-label" style="color:${yearGain >= 0 ? 'var(--up)' : 'var(--down)'}">금년 손익</div>
           <div class="card-value lg ${cls}">${fmtSign(Math.round(yearGain))}원</div>
           <div class="card-sub" style="font-size:12px">${subParts.join(' · ')}</div>
         </div>
       </div>`;
+      if (totalFee > 0 || totalTax > 0) {
+        html += `<div class="summary-row" style="margin-bottom:14px">
+          <div class="card summary-wide" style="background:var(--bg2);border:1px solid var(--border)">
+            <div style="display:flex;align-items:baseline;justify-content:space-between">
+              <div>
+                <div class="card-label">세후 실제 손익</div>
+                <div class="card-value sm ${netCls}">${fmtSign(Math.round(netGain))}원</div>
+              </div>
+              <div style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--text3)">
+                ${totalFee > 0 ? '<div>수수료 -' + fmt(Math.round(totalFee)) + '원</div>' : ''}
+                ${totalTax > 0 ? '<div>세금 -' + fmt(Math.round(totalTax)) + '원</div>' : ''}
+              </div>
+            </div>
+          </div>
+        </div>`;
+      } else {
+        html += '<div style="margin-bottom:8px"></div>';
+      }
     } else if (yearAccounts.length === 0) {
       html = `<div class="summary-row" style="margin-bottom:14px">
         <div class="year-card-hero summary-wide" style="background:var(--bg2);border-color:var(--border)">
@@ -1664,7 +1709,11 @@ function syncYearAccounts() {
   // 기존 yearAccounts에서 값 보존, 새 계좌 추가, 없는 계좌 제거
   const oldMap = {};
   for (const ya of yearAccounts) oldMap[ya.name] = ya;
-  yearAccounts = acctNames.map(name => oldMap[name] || { name, yearEndPnl: 0, realized: 0 });
+  yearAccounts = acctNames.map(name => {
+    if (oldMap[name]) return oldMap[name];
+    const hasUS = pf.some(s => s.acct === name && s.market === 'US');
+    return { name, yearEndPnl: 0, realized: 0, feeRate: 0, taxRate: hasUS ? 22 : 0 };
+  });
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
 }
 
@@ -1686,7 +1735,7 @@ function renderYearAccounts() {
     return `
     <div style="margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
       <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:6px">${acc.name}${hasUS ? ' <span style="font-size:9px;font-weight:400;color:var(--up)">USD</span>' : ''}</div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;margin-bottom:6px">
         <div style="flex:1">
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">작년말 손익액</div>
           <input type="number" value="${acc.yearEndPnl || ''}" placeholder="0" data-ya="${i}" data-field="yearEndPnl" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
@@ -1696,6 +1745,16 @@ function renderYearAccounts() {
           <input type="number" value="${acc.realized || ''}" placeholder="0" data-ya="${i}" data-field="realized" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
         </div>
         ${fxField}
+      </div>
+      <div style="display:flex;gap:6px">
+        <div style="flex:1">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">수수료 (%)</div>
+          <input type="number" value="${acc.feeRate || ''}" placeholder="0" step="0.01" data-ya="${i}" data-field="feeRate" inputmode="decimal" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+        </div>
+        <div style="flex:1">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">세금 (%) ${hasUS ? '<span style="color:var(--up)">미국 22%</span>' : ''}</div>
+          <input type="number" value="${acc.taxRate != null ? acc.taxRate : (hasUS ? 22 : '')}" placeholder="0" step="0.1" data-ya="${i}" data-field="taxRate" inputmode="decimal" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+        </div>
       </div>
     </div>`;
   }).join('');
