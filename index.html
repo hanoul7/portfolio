@@ -593,13 +593,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   </div>
 
   <!-- 종목 리스트 -->
-  <div class="stock-header" style="margin-bottom:14px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div class="section-title">보유 종목</div>
-      <div style="font-size:11px;color:var(--text3);font-family:var(--mono)" id="stock-count"></div>
-    </div>
-    <div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-0.03em;font-family:var(--mono)" id="s-eval">—</div>
-  </div>
+  <div class="stock-header" id="stock-header-area"></div>
 
   <div class="stock-list" id="stock-list">
     <div class="empty-state">
@@ -1129,13 +1123,10 @@ function render() {
 
 function renderList() {
   const el = document.getElementById('stock-list');
-  const cnt = document.getElementById('stock-count');
   if (pf.length === 0) {
     el.innerHTML = '<div class="empty-state">아래 버튼으로 보유 종목을 추가해주세요</div>';
-    cnt.textContent = '';
     return;
   }
-  cnt.textContent = `${pf.length}개 종목`;
   // 전체 평가금액 계산 (비중용)
   let totalEval = 0;
   for (const s of pf) {
@@ -1358,7 +1349,17 @@ function renderSummary() {
   const gain = totalEval - totalCost;
   const gainPct = totalCost > 0 ? (gain / totalCost) * 100 : 0;
 
-  document.getElementById('s-eval').textContent = hasP ? fmtKr(totalEval) : '—';
+  // 보유종목 헤더
+  const hdr = document.getElementById('stock-header-area');
+  if (hdr) {
+    const evalText = hasP ? fmtKr(totalEval) : '—';
+    hdr.innerHTML = `
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <div style="font-size:13px;font-weight:700;color:var(--text)">보유 종목 <span style="color:var(--accent);font-family:var(--mono)">${pf.length}</span><span style="font-size:11px;color:var(--text3);font-weight:400">개</span></div>
+        <div style="font-size:20px;font-weight:800;color:var(--text);font-family:var(--mono);letter-spacing:-0.03em">${evalText}</div>
+      </div>
+    `;
+  }
 
   // 총 손익 카드
   const pe = document.getElementById('s-pnl');
