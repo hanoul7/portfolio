@@ -850,12 +850,26 @@ async function fetchUS(ticker) {
   return null;
 }
 
-// ── 금현물: /api/gold-price (Yahoo Finance + metals.live fallback) ──
+// ── 금현물: 장중 KIS API(411060) / 장외 Yahoo GC=F + 자동 프리미엄 ──
 async function fetchGold() {
   const TROY_OZ_TO_GRAM = 31.1034768;
 
-  // ── 테스트: KIS API로 ACE KRX금현물 ETF(411060) 조회 ──
-  if (appKey && appSecret) {
+  // 1) 국제 금시세 먼저 조회 (프리미엄 계산용 + 장외 fallback)
+  let intlPerGram = 0, intlPrevPerGram = 0, intlChg = 0;
+  try {
+    const r = await fetch('/api/gold-price');
+    const d = await r.json();
+    if (d.price > 0 && usdkrw > 0) {
+      xauUsd = d.price;
+      intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
+      const prevClose = d.prevClose || xauUsd;
+      intlPrevPerGram = prevClose * usdkrw / TROY_OZ_TO_GRAM;
+      intlChg = d.prevClose ? ((xauUsd - prevClose) / prevClose) * 100 : 0;
+    }
+  } catch(e) {}
+
+  // 2) 장중이면 KIS API로 411060(ACE KRX금현물) 직접 조회
+  if (isKrMarketOpen() && appKey && appSecret) {
     try {
       const tok = await getToken();
       if (tok) {
@@ -864,28 +878,31 @@ async function fetchGold() {
         });
         const d = await r.json();
         const o = d?.output;
-        const etfPrice = parseInt(o?.stck_prpr || '0');
-        const etfPrev = parseInt(o?.stck_sdpr || '0');
-        const xauPerGram = xauUsd > 0 && usdkrw > 0 ? Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM) : 0;
-        console.log('[TEST 411060] ETF price:', etfPrice, '| prev:', etfPrev, '| XAU환산:', xauPerGram, '| 차이:', etfPrice - xauPerGram, '| rt_cd:', d?.rt_cd, '| msg:', d?.msg1);
-        console.log('[TEST 411060] full output:', JSON.stringify(o).slice(0, 500));
+        const price = parseInt(o?.stck_prpr || '0');
+        const prev = parseInt(o?.stck_sdpr || '0');
+        if (price > 0) {
+          const chg = prev > 0 ? ((price - prev) / prev) * 100 : 0;
+          // 프리미엄 자동 계산: ETF 종가 / 국제금 환산값
+          if (intlPerGram > 0) {
+            const autoPremium = price / intlPerGram;
+            goldPremium = Math.round(autoPremium * 1000) / 1000;
+            localStorage.setItem('gold_premium', goldPremium.toString());
+            console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(3), '| ETF:', price, '| 국제금환산:', Math.round(intlPerGram));
+          }
+          console.log('[GOLD] 장중 411060:', price, '원/g | 전일:', prev, '| 등락:', chg.toFixed(2) + '%');
+          return { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: 'KRX금현물' };
+        }
       }
-    } catch(e) { console.error('[TEST 411060] error:', e); }
+    } catch(e) { console.error('[GOLD] 411060 error:', e); }
   }
 
-  try {
-    const r = await fetch('/api/gold-price');
-    const d = await r.json();
-    console.log('[GOLD] response:', JSON.stringify(d));
-    if (d.price > 0 && usdkrw > 0) {
-      xauUsd = d.price;
-      const prevClose = d.prevClose || xauUsd;
-      const chg = d.prevClose ? ((xauUsd - prevClose) / prevClose) * 100 : 0;
-      const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
-      const prevPerGram = Math.round(prevClose * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
-      return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: chg, name: '금현물(XAU)', estimated: false };
-    }
-  } catch(e) { console.error('[GOLD] fetch error:', e); }
+  // 3) 장외: 국제 금시세 × 프리미엄
+  if (intlPerGram > 0) {
+    const pricePerGram = Math.round(intlPerGram * goldPremium);
+    const prevPerGram = Math.round(intlPrevPerGram * goldPremium);
+    console.log('[GOLD] 장외 XAU×P:', pricePerGram, '원/g | 프리미엄:', goldPremium.toFixed(3));
+    return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: intlChg, name: '금현물(추정)' };
+  }
   return null;
 }
 
@@ -1053,7 +1070,7 @@ function renderList() {
       const borderColor = gain >= 0 ? `rgba(16,185,129,${(step * 0.35).toFixed(2)})` : `rgba(239,68,68,${(step * 0.35).toFixed(2)})`;
       cardStyle = `background:${bgColor};border-color:${borderColor};`;
 
-      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> XAU (P ${goldPremium.toFixed(2)})</span>` : '';
+      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name === 'KRX금현물' ? 'KRX' : 'P ' + goldPremium.toFixed(3)}</span>` : '';
       const ms = (p.marketState || '').toUpperCase();
       const msLabel = ms.includes('PRE') ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
         : ms.includes('POST') ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
