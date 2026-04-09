@@ -1448,23 +1448,21 @@ function renderSummary() {
       for (const ya of yearAccounts) {
         const am = acctMap[ya.name];
         if (!am) continue;
-        const acctEval = am.eval;
-        // 수수료: 평가액 × 수수료율
-        if (ya.feeRate > 0) totalFee += acctEval * (ya.feeRate / 100);
-        // 세금: 계좌별 금년 양도익 × 세율 (양도익이 양수일 때만)
-        if (ya.taxRate > 0) {
-          const curPnl = am.eval - am.cost;
-          let acctFx = 0;
-          if (ya.yearEndFx > 0) {
-            for (const s of pf) {
-              if (s.acct === ya.name && s.market === 'US') {
-                const p = px[s.id];
-                if (p) acctFx += (p.priceLocal || 0) * s.qty * (usdkrw - ya.yearEndFx);
-              }
+        const curPnl = am.eval - am.cost;
+        let acctFx = 0;
+        if (ya.yearEndFx > 0) {
+          for (const s of pf) {
+            if (s.acct === ya.name && s.market === 'US') {
+              const p = px[s.id];
+              if (p) acctFx += (p.priceLocal || 0) * s.qty * (usdkrw - ya.yearEndFx);
             }
           }
-          const acctYearGain = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0) + acctFx;
-          if (acctYearGain > 0) totalTax += acctYearGain * (ya.taxRate / 100);
+        }
+        const acctYearGain = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0) + acctFx;
+        // 수수료·세금 모두 양도익(양수)에 대해서만 적용
+        if (acctYearGain > 0) {
+          if (ya.feeRate > 0) totalFee += acctYearGain * (ya.feeRate / 100);
+          if (ya.taxRate > 0) totalTax += acctYearGain * (ya.taxRate / 100);
         }
       }
       const netGain = yearGain - totalFee - totalTax;
