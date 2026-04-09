@@ -1972,7 +1972,7 @@ function importData(e) {
 }
 
 // ── 모달 바깥 클릭으로 닫기 ──
-['add-modal','edit-modal','api-modal'].forEach(id => {
+['add-modal','edit-modal','api-modal','year-modal'].forEach(id => {
   const el = document.getElementById(id);
   let downOnOverlay = false;
   el.addEventListener('mousedown', e => { downOnOverlay = e.target === el; });
@@ -1980,9 +1980,19 @@ function importData(e) {
     if (downOnOverlay && e.target === el) {
       if (id === 'add-modal') closeAddModal();
       else if (id === 'edit-modal') closeEditModal();
+      else if (id === 'year-modal') closeYearModal();
       else closeApiModal();
     }
   });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('year-modal').classList.contains('open')) closeYearModal();
+    else if (document.getElementById('edit-modal').classList.contains('open')) closeEditModal();
+    else if (document.getElementById('add-modal').classList.contains('open')) closeAddModal();
+    else if (document.getElementById('api-modal').classList.contains('open')) closeApiModal();
+  }
 });
 
 // ── 자동 갱신 3분 ──
