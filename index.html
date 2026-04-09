@@ -868,7 +868,8 @@ async function fetchGold() {
     }
   } catch(e) {}
 
-  // 2) 장중이면 KIS API로 411060(ACE KRX금현물) 직접 조회
+  // 2) 장중이면 KIS API로 411060(ACE KRX금현물) 조회 → 프리미엄 자동 계산
+  let etfRatio = parseFloat(localStorage.getItem('gold_etf_ratio') || '0');
   if (isKrMarketOpen() && appKey && appSecret) {
     try {
       const tok = await getToken();
@@ -878,30 +879,33 @@ async function fetchGold() {
         });
         const d = await r.json();
         const o = d?.output;
-        const price = parseInt(o?.stck_prpr || '0');
-        const prev = parseInt(o?.stck_sdpr || '0');
-        if (price > 0) {
-          const chg = prev > 0 ? ((price - prev) / prev) * 100 : 0;
-          // 프리미엄 자동 계산: ETF 종가 / 국제금 환산값
-          if (intlPerGram > 0) {
-            const autoPremium = price / intlPerGram;
-            goldPremium = Math.round(autoPremium * 1000) / 1000;
-            localStorage.setItem('gold_premium', goldPremium.toString());
-            console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(3), '| ETF:', price, '| 국제금환산:', Math.round(intlPerGram));
+        const etfPrice = parseInt(o?.stck_prpr || '0');
+        if (etfPrice > 0 && intlPerGram > 0) {
+          // ETF→g 비율 갱신 (etfPrice × ratio = KRX 금 1g 가격)
+          // 첫 사용 시 또는 비율 없을 때: 국제금 기준으로 초기 비율 추정
+          if (etfRatio <= 0) {
+            etfRatio = intlPerGram / etfPrice;
+            localStorage.setItem('gold_etf_ratio', etfRatio.toFixed(4));
           }
-          console.log('[GOLD] 장중 411060:', price, '원/g | 전일:', prev, '| 등락:', chg.toFixed(2) + '%');
-          return { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: 'KRX금현물' };
+          const krxPerGram = etfPrice * etfRatio;
+          const autoPremium = krxPerGram / intlPerGram;
+          goldPremium = Math.round(autoPremium * 10000) / 10000;
+          localStorage.setItem('gold_premium', goldPremium.toString());
+          console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(4), '| ETF:', etfPrice, '| ETF비율:', etfRatio.toFixed(4), '| KRX/g:', Math.round(krxPerGram), '| 국제금/g:', Math.round(intlPerGram));
         }
       }
     } catch(e) { console.error('[GOLD] 411060 error:', e); }
   }
 
-  // 3) 장외: 국제 금시세 × 프리미엄
+  // 3) 프리미엄 1% 미만이면 XAU 환산 그대로, 1% 이상이면 프리미엄 적용
   if (intlPerGram > 0) {
-    const pricePerGram = Math.round(intlPerGram * goldPremium);
-    const prevPerGram = Math.round(intlPrevPerGram * goldPremium);
-    console.log('[GOLD] 장외 XAU×P:', pricePerGram, '원/g | 프리미엄:', goldPremium.toFixed(3));
-    return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: intlChg, name: '금현물(추정)' };
+    const useP = Math.abs(goldPremium - 1) >= 0.01;
+    const p = useP ? goldPremium : 1;
+    const pricePerGram = Math.round(intlPerGram * p);
+    const prevPerGram = Math.round(intlPrevPerGram * p);
+    const label = useP ? `금현물(P ${goldPremium.toFixed(3)})` : '금현물(XAU)';
+    console.log('[GOLD]', label, ':', pricePerGram, '원/g | premium:', goldPremium.toFixed(4), useP ? '적용' : '무시(<1%)');
+    return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: intlChg, name: label };
   }
   return null;
 }
@@ -1070,7 +1074,7 @@ function renderList() {
       const borderColor = gain >= 0 ? `rgba(16,185,129,${(step * 0.35).toFixed(2)})` : `rgba(239,68,68,${(step * 0.35).toFixed(2)})`;
       cardStyle = `background:${bgColor};border-color:${borderColor};`;
 
-      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name === 'KRX금현물' ? 'KRX' : 'P ' + goldPremium.toFixed(3)}</span>` : '';
+      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>` : '';
       const ms = (p.marketState || '').toUpperCase();
       const msLabel = ms.includes('PRE') ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
         : ms.includes('POST') ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
