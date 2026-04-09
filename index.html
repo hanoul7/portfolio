@@ -1987,9 +1987,9 @@ function saveYearAccounts() {
 }
 
 // ── 비중 차트 ──
-async function openChartModal() {
+function openChartModal() {
   document.getElementById('chart-modal').classList.add('open');
-  await renderChartContent();
+  renderChartContent();
 }
 function closeChartModal() { document.getElementById('chart-modal').classList.remove('open'); }
 
@@ -2021,43 +2021,6 @@ function buildPieCSS(items, size) {
     <div style="${pieStyle}"></div>
     <div style="min-width:160px;flex:1">${legendHtml}</div>
   </div>`;
-}
-
-// KR 종목 Yahoo 티커 변환
-function krToYahoo(code) {
-  return code.replace(/\D/g,'').padStart(6,'0') + '.KS';
-}
-
-function toYahooSymbol(s) {
-  if (s.market === 'US') return s.ticker;
-  if (s.market === 'KR') return krToYahoo(s.ticker);
-  if (s.market === 'GOLD') return 'GC=F';
-  if (s.market === 'SILVER') return 'SI=F';
-  return null; // MANUAL 제외
-}
-
-async function fetchChartHistory(symbol) {
-  try {
-    const r = await fetch(`/api/chart-history?symbol=${encodeURIComponent(symbol)}&range=ytd`);
-    if (!r.ok) {
-      // .KS 실패 시 .KQ로 재시도
-      if (symbol.endsWith('.KS')) {
-        const kq = symbol.replace('.KS', '.KQ');
-        const r2 = await fetch(`/api/chart-history?symbol=${encodeURIComponent(kq)}&range=ytd`);
-        if (r2.ok) { const d2 = await r2.json(); return d2.data || null; }
-      }
-      return null;
-    }
-    const d = await r.json();
-    if (d.data && d.data.length > 0) return d.data;
-    // 데이터 비어있으면 .KQ 시도
-    if (symbol.endsWith('.KS')) {
-      const kq = symbol.replace('.KS', '.KQ');
-      const r2 = await fetch(`/api/chart-history?symbol=${encodeURIComponent(kq)}&range=ytd`);
-      if (r2.ok) { const d2 = await r2.json(); return d2.data || null; }
-    }
-    return null;
-  } catch(e) { return null; }
 }
 
 function buildLineChart(dataPoints, height) {
@@ -2114,7 +2077,7 @@ function buildLineChart(dataPoints, height) {
   </svg>`;
 }
 
-async function renderChartContent() {
+function renderChartContent() {
   const el = document.getElementById('chart-content');
   if (!el) return;
 
@@ -2147,11 +2110,6 @@ async function renderChartContent() {
     .map(([name, val]) => ({ label: name, value: val, color: mktColors[name] }));
 
   el.innerHTML = `
-    <div id="pf-daily-chart" style="margin-bottom:16px">
-      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>
-      <div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">차트 로딩 중...</div>
-    </div>
-    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
     <div style="margin-bottom:20px">
       <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;letter-spacing:0.05em">계좌별 비중</div>
       ${buildPieCSS(acctItems, 130)}
@@ -2161,78 +2119,6 @@ async function renderChartContent() {
       <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;letter-spacing:0.05em">시장별 비중</div>
       ${buildPieCSS(mktItems, 130)}
     </div>`;
-
-  // 비동기로 일봉 차트 로드
-  loadDailyChart();
-}
-
-async function loadDailyChart() {
-  const chartEl = document.getElementById('pf-daily-chart');
-  if (!chartEl) return;
-
-  // 중복 제거: 종목별 Yahoo 심볼 + 수량
-  const stockJobs = [];
-  const seen = {};
-  for (const s of pf) {
-    const sym = toYahooSymbol(s);
-    if (!sym) continue;
-    const key = sym;
-    if (!seen[key]) {
-      seen[key] = { symbol: sym, market: s.market, qty: 0 };
-      stockJobs.push(seen[key]);
-    }
-    seen[key].qty += s.qty;
-  }
-
-  // 환율 히스토리도 함께 조회
-  const allFetches = [
-    ...stockJobs.map(j => fetchChartHistory(j.symbol).then(data => ({ ...j, data }))),
-    fetchChartHistory('KRW=X').then(data => ({ symbol: 'KRW=X', data, isFx: true })),
-  ];
-
-  const results = await Promise.all(allFetches);
-  const fxResult = results.find(r => r.isFx);
-  const fxMap = {};
-  if (fxResult?.data) {
-    for (const d of fxResult.data) fxMap[d.date] = d.close;
-  }
-
-  // 날짜별 포트폴리오 원화 평가액 합산
-  const dateMap = {};
-  for (const r of results) {
-    if (r.isFx || !r.data) continue;
-    const isUS = r.market === 'US';
-    const isGoldSilver = r.market === 'GOLD' || r.market === 'SILVER';
-    const TROY = 31.1034768;
-    for (const d of r.data) {
-      if (!dateMap[d.date]) dateMap[d.date] = 0;
-      let krwPrice = d.close;
-      if (isUS) {
-        const fx = fxMap[d.date] || usdkrw;
-        krwPrice = d.close * fx;
-      } else if (isGoldSilver) {
-        const fx = fxMap[d.date] || usdkrw;
-        krwPrice = d.close * fx / TROY;
-      }
-      dateMap[d.date] += krwPrice * r.qty;
-    }
-  }
-
-  const dates = Object.keys(dateMap).sort();
-  if (dates.length < 2) {
-    chartEl.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>
-      <div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">히스토리 데이터 부족</div>`;
-    return;
-  }
-
-  // 금년 첫 거래일 대비 평가액 변동 (포트폴리오 가치 변화)
-  const baseVal = dateMap[dates[0]];
-  const dataPoints = dates.map(date => ({
-    date,
-    value: dateMap[date] - baseVal
-  }));
-
-  chartEl.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>` + buildLineChart(dataPoints, 200);
 }
 
 function toggleAcctMore(id, btn, count) {
