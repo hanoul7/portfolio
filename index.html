@@ -555,7 +555,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <input type="hidden" id="f-mkt" value="KR" />
       <div class="ff form-full">
         <label class="fl">종목코드 / 티커 <span style="font-weight:400;font-size:10px;color:var(--text3)">숫자6자리=한국 · 영문=미국 · GOLD=금</span></label>
-        <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD" autocomplete="off" autocapitalize="characters" onblur="lookupName()" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupName();document.getElementById('f-avg').focus();}" tabindex="1" />
+        <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD" autocomplete="off" autocapitalize="characters" lang="en" inputmode="latin" onblur="lookupName()" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupName();document.getElementById('f-avg').focus();}" tabindex="1" />
       </div>
       <div class="ff">
         <label class="fl" id="f-avg-label">평균 매입단가 (원)</label>
@@ -571,7 +571,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       </div>
       <div class="ff form-full">
         <label class="fl">계좌명 (선택)</label>
-        <input id="f-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" tabindex="5" />
+        <input id="f-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" tabindex="5" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
       </div>
     </div>
     <div id="f-name-display" style="font-size:13px;color:var(--text2);padding:0 2px;min-height:20px">
@@ -579,8 +579,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <input type="hidden" id="f-name" value="" />
     </div>
     <div class="form-err" id="add-err"></div>
-    <button class="btn-primary" onclick="addStock()">추가하기</button>
-    <button class="btn-secondary" onclick="closeAddModal()">취소</button>
+    <button class="btn-primary" onclick="addStock()" tabindex="6">추가하기</button>
+    <button class="btn-secondary" onclick="closeAddModal()" tabindex="7">취소</button>
   </div>
 </div>
 
