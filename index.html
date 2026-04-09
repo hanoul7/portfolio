@@ -616,7 +616,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     <div class="form-grid">
       <input type="hidden" id="f-mkt" value="KR" />
       <div class="ff form-full">
-        <label class="fl">종목코드 / 티커 <span style="font-weight:400;font-size:10px;color:var(--text3)">숫자6자리=한국 · 영문=미국 · GOLD=금</span></label>
+        <label class="fl">종목코드 / 티커 <span style="font-weight:400;font-size:10px;color:var(--text3)">숫자6자리=한국 · 영문=미국 · GOLD=금 · 한글=수기</span></label>
         <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD" autocomplete="off" autocapitalize="characters" lang="en" inputmode="latin" onblur="lookupName()" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupName();document.getElementById('f-avg').focus();}" tabindex="1" />
       </div>
       <div class="ff">
@@ -631,9 +631,13 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
         <label class="fl">보유 수량 (<span id="f-qty-unit">주</span>)</label>
         <input id="f-qty" type="number" placeholder="10" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" tabindex="4" />
       </div>
+      <div class="ff" id="f-manual-wrap" style="display:none">
+        <label class="fl">현재가 (원)</label>
+        <input id="f-manual-price" type="number" placeholder="150000" inputmode="numeric" tabindex="5" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
+      </div>
       <div class="ff form-full">
         <label class="fl">계좌명 (선택)</label>
-        <input id="f-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" tabindex="5" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
+        <input id="f-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" tabindex="6" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
       </div>
     </div>
     <div id="f-name-display" style="font-size:13px;color:var(--text2);padding:0 2px;min-height:20px">
@@ -667,6 +671,10 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <div class="ff">
         <label class="fl">보유 수량 (<span id="e-qty-unit">주</span>)</label>
         <input id="e-qty" type="number" inputmode="numeric" />
+      </div>
+      <div class="ff" id="e-manual-wrap" style="display:none">
+        <label class="fl">현재가 (원)</label>
+        <input id="e-manual-price" type="number" inputmode="numeric" />
       </div>
       <div class="ff form-full">
         <label class="fl">계좌명</label>
@@ -1093,6 +1101,13 @@ async function refreshAll() {
   const jobs = Object.values(uniqueKeys);
   const cache = {};
 
+  // MANUAL 종목은 저장된 manualPrice 사용
+  for (const s of pf) {
+    if (s.market === 'MANUAL' && s.manualPrice > 0) {
+      cache['MANUAL:' + s.ticker] = { priceKrw: s.manualPrice, priceLocal: s.manualPrice, prevClose: s.manualPrice, changeRatio: 0, name: s.name };
+    }
+  }
+
   // 시장별 병렬 조회 (KR은 KIS 초당 제한 때문에 2개씩 병렬)
   const krJobs = jobs.filter(j => j.market === 'KR');
   const usJobs = jobs.filter(j => j.market === 'US');
@@ -1280,6 +1295,8 @@ function renderStockCard(s, totalEval) {
   const cost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
   const badge = s.market === 'GOLD'
     ? '<span class="badge badge-gold">GOLD</span>'
+    : s.market === 'MANUAL'
+    ? '<span class="badge" style="background:var(--bg4);color:var(--text3)">수기</span>'
     : s.market === 'KR'
     ? '<span class="badge badge-kr">KR</span>'
     : '<span class="badge badge-us">US</span>';
@@ -1510,6 +1527,7 @@ function renderSummary() {
 function detectMarket(tick) {
   if (/^(GOLD|GLD)$/i.test(tick)) return 'GOLD';
   if (/^\d{1,6}$/.test(tick)) return 'KR';
+  if (/[가-힣]/.test(tick)) return 'MANUAL';
   return 'US';
 }
 
@@ -1522,15 +1540,25 @@ async function lookupName() {
   const mkt = detectMarket(tick);
   mktEl.value = mkt;
 
-  // US 주식이면 달러 입력 + 환율 칸 표시
+  // 시장별 UI 전환
   const isUS = mkt === 'US';
+  const isManual = mkt === 'MANUAL';
   document.getElementById('f-avg-label').textContent = isUS ? '평균 매입단가 (USD)' : '평균 매입단가 (원)';
   document.getElementById('f-avg').placeholder = isUS ? '182.50' : '759742';
   document.getElementById('f-avgfx-wrap').style.display = isUS ? '' : 'none';
+  document.getElementById('f-manual-wrap').style.display = isManual ? '' : 'none';
   if (isUS && !document.getElementById('f-avgfx').value) {
     document.getElementById('f-avgfx').value = usdkrw > 0 ? Math.round(usdkrw) : '';
   }
   document.getElementById('f-qty-unit').textContent = mkt === 'GOLD' ? 'g' : '주';
+
+  // 수기입력
+  if (isManual) {
+    nameEl.value = tick;
+    hint.innerHTML = `✓ <strong style="color:var(--text)">수기입력</strong> <span style="color:var(--text3);font-size:10px">현재가를 직접 입력하세요</span>`;
+    hint.style.color = '#0a8a4a';
+    return;
+  }
 
   // 금현물
   if (mkt === 'GOLD') {
@@ -1589,21 +1617,32 @@ async function addStock() {
   const acct = document.getElementById('f-acct').value.trim();
   const err = document.getElementById('add-err');
 
+  const manualPrice = mkt === 'MANUAL' ? parseFloat(document.getElementById('f-manual-price').value) : 0;
+
   if (!tick || isNaN(avg) || isNaN(qty) || avg <= 0 || qty <= 0) {
     err.textContent = '모든 항목을 입력해주세요'; return;
   }
   if (mkt === 'US' && (isNaN(avgFx) || avgFx <= 0)) {
     err.textContent = '매입 환율을 입력해주세요'; return;
   }
+  if (mkt === 'MANUAL' && (isNaN(manualPrice) || manualPrice <= 0)) {
+    err.textContent = '현재가를 입력해주세요'; return;
+  }
   if (pf.find(s => s.ticker === tick && s.market === mkt && (s.acct || '') === acct)) {
     err.textContent = '이미 추가된 종목입니다 (같은 계좌)'; return;
   }
   err.textContent = '';
   const id = Date.now().toString();
-  pf.push({ id, market: mkt, ticker: tick, name, avg, qty, acct, ...(mkt === 'US' ? { avgFx } : {}) });
+  pf.push({ id, market: mkt, ticker: tick, name, avg, qty, acct, ...(mkt === 'US' ? { avgFx } : {}), ...(mkt === 'MANUAL' ? { manualPrice } : {}) });
   save();
   syncYearAccounts();
   closeAddModal();
+  // 수기입력은 즉시 px 설정
+  if (mkt === 'MANUAL') {
+    px[id] = { priceKrw: manualPrice, priceLocal: manualPrice, prevClose: manualPrice, changeRatio: 0, name: name };
+    render();
+    return;
+  }
   render();
   if (appKey && appSecret) {
     setSt('loading', '시세 조회 중...');
@@ -1643,6 +1682,8 @@ function openAddModal() {
   document.getElementById('f-avg').placeholder = '759742';
   document.getElementById('f-avgfx-wrap').style.display = 'none';
   document.getElementById('f-avgfx').value = '';
+  document.getElementById('f-manual-wrap').style.display = 'none';
+  document.getElementById('f-manual-price').value = '';
   document.getElementById('f-qty-unit').textContent = '주';
   document.getElementById('f-qty').value = '';
   document.getElementById('f-acct').value = '';
@@ -1664,6 +1705,8 @@ function openEditModal(id) {
   document.getElementById('e-avg').value = s.avg;
   document.getElementById('e-avgfx-wrap').style.display = isUS ? '' : 'none';
   document.getElementById('e-avgfx').value = s.avgFx || '';
+  document.getElementById('e-manual-wrap').style.display = s.market === 'MANUAL' ? '' : 'none';
+  document.getElementById('e-manual-price').value = s.manualPrice || '';
   document.getElementById('e-qty-unit').textContent = s.market === 'GOLD' ? 'g' : '주';
   document.getElementById('e-qty').value = s.qty;
   document.getElementById('e-acct').value = s.acct || '';
@@ -1688,6 +1731,12 @@ function saveEdit() {
   s.avg = avg;
   s.qty = qty;
   if (s.market === 'US') s.avgFx = avgFx;
+  if (s.market === 'MANUAL') {
+    const mp = parseFloat(document.getElementById('e-manual-price').value);
+    if (isNaN(mp) || mp <= 0) { err.textContent = '현재가를 입력해주세요'; return; }
+    s.manualPrice = mp;
+    px[s.id] = { priceKrw: mp, priceLocal: mp, prevClose: mp, changeRatio: 0, name: s.name };
+  }
   s.acct = acct;
   save();
   syncYearAccounts();
