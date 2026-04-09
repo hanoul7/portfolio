@@ -194,6 +194,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   font-weight: 800;
   letter-spacing: -0.03em;
 }
+.acct-year-pnl.up { color: var(--up); }
+.acct-year-pnl.down { color: var(--down); }
 .acct-total-pnl {
   font-family: var(--mono);
   font-size: 11px;
@@ -234,8 +236,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
 /* 섹션 헤더 */
 .section-hd {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 10px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  margin-bottom: 12px;
 }
 .section-title {
   font-size: 11px; font-weight: 600;
@@ -538,13 +540,6 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   <!-- 요약 카드 -->
   <div id="account-summary-area"></div>
   <div class="summary-row" style="margin-bottom:10px">
-    <div class="card summary-wide">
-      <div class="card-label">총 평가금액</div>
-      <div class="card-value" id="s-eval">—</div>
-      <div class="card-sub" id="s-cost">매입 —</div>
-    </div>
-  </div>
-  <div class="summary-row" style="margin-bottom:10px">
     <div class="card" id="pnl-card" style="transition:background 0.3s">
       <div class="card-label">총 손익</div>
       <div class="card-value sm" id="s-pnl">—</div>
@@ -599,8 +594,14 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
   <!-- 종목 리스트 -->
   <div class="section-hd">
-    <div class="section-title">보유 종목</div>
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono)" id="stock-count"></div>
+    <div>
+      <div class="section-title">보유 종목</div>
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono)" id="stock-count"></div>
+    </div>
+    <div id="total-eval-badge" style="text-align:right">
+      <div style="font-size:10px;color:var(--text3);letter-spacing:0.05em">총 평가</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text);letter-spacing:-0.02em" id="s-eval">—</div>
+    </div>
   </div>
 
   <div class="stock-list" id="stock-list">
@@ -785,6 +786,36 @@ function save() {
 function fmt(n) { return Math.round(n).toLocaleString('ko-KR'); }
 function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
 function fmtSign(n) { return (n >= 0 ? '+' : '') + fmt(n); }
+function fmtKr(n) {
+  const abs = Math.abs(Math.round(n));
+  const sign = n < 0 ? '-' : '';
+  const eok = Math.floor(abs / 100000000);
+  const man = Math.floor((abs % 100000000) / 10000);
+  const rest = abs % 10000;
+  let parts = [];
+  if (eok > 0) parts.push(eok + '억');
+  if (man > 0) {
+    const chun = Math.floor(man / 1000);
+    const baek = Math.floor((man % 1000) / 100);
+    let manStr = '';
+    if (chun > 0) manStr += chun + '천';
+    if (baek > 0) manStr += baek + '백';
+    else if (chun > 0 && man % 1000 > 0) manStr += Math.floor((man % 1000)) + '';
+    if (manStr === '') manStr = man + '';
+    // 간결하게: 억 단위 있으면 천백만, 없으면 전체
+    if (eok > 0) {
+      let s = '';
+      if (chun > 0) s += chun + '천';
+      if (baek > 0) s += baek + '백';
+      parts.push(s || man.toLocaleString() + '만');
+    } else {
+      parts.push(man.toLocaleString() + '만');
+    }
+  }
+  if (rest > 0 && eok === 0) parts.push(rest.toLocaleString());
+  if (parts.length === 0) parts.push('0');
+  return sign + parts.join(' ');
+}
 
 function setSt(type, txt) {
   const d = document.getElementById('sdot');
@@ -1173,12 +1204,10 @@ function renderList() {
       <div class="acct-group" style="background:${groupBg};border-color:${groupBorder}">
         <div class="acct-group-header">
           <div style="min-width:0;flex:1">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
               <div class="acct-name" style="color:${nameClr};background:${nameClr}18">${key || '미지정'}</div>
-              <div style="flex:1;display:flex;align-items:center;gap:5px;min-width:0">
-                <div style="flex:1;height:4px;border-radius:2px;background:var(--border);overflow:hidden"><div style="height:100%;border-radius:2px;background:${nameClr};width:${Math.min(weight,100)}%;opacity:0.7"></div></div>
-                <span style="font-size:10px;font-family:var(--mono);color:var(--text3);white-space:nowrap">${weight.toFixed(1)}%</span>
-              </div>
+              <div style="width:50px;height:4px;border-radius:2px;background:var(--border);overflow:hidden;flex-shrink:0"><div style="height:100%;border-radius:2px;background:${nameClr};width:${Math.min(weight,100)}%;opacity:0.7"></div></div>
+              <span style="font-size:10px;font-family:var(--mono);color:var(--text3);white-space:nowrap">${weight.toFixed(1)}%</span>
             </div>
             <div class="acct-total-pnl" style="white-space:nowrap">
               손익 <span class="${cls}" style="font-weight:600">${fmtSign(Math.round(g))}</span><span class="${cls}" style="font-size:10px">원</span>
@@ -1289,8 +1318,7 @@ function renderSummary() {
   const gain = totalEval - totalCost;
   const gainPct = totalCost > 0 ? (gain / totalCost) * 100 : 0;
 
-  document.getElementById('s-eval').textContent = hasP ? fmt(totalEval) + '원' : '—';
-  document.getElementById('s-cost').textContent = '매입 ' + fmt(totalCost) + '원';
+  document.getElementById('s-eval').textContent = hasP ? fmtKr(totalEval) : '—';
 
   // 총 손익 카드
   const pe = document.getElementById('s-pnl');
