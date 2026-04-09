@@ -463,9 +463,9 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     <div class="icon-btn" id="status-wrap" title="연결 상태">
       <div class="status-dot" id="sdot"></div>
     </div>
-    <div class="icon-btn" onclick="openYearModal()" title="손익 계좌">₩</div>
-    <div class="icon-btn" onclick="exportData()" title="내보내기">↑</div>
-    <div class="icon-btn" onclick="document.getElementById('import-file').click()" title="가져오기">↓</div>
+    <div class="icon-btn" onclick="openYearModal()" title="손익 계좌" style="font-size:15px">📊</div>
+    <div class="icon-btn" onclick="exportData()" title="내보내기" style="font-size:14px">💾</div>
+    <div class="icon-btn" onclick="document.getElementById('import-file').click()" title="가져오기" style="font-size:14px">📂</div>
     <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)" />
     <div class="icon-btn" onclick="openApiModal()" title="API 설정">⚙️</div>
     <div class="icon-btn" onclick="refreshAll()" title="새로고침">↻</div>
@@ -494,13 +494,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <div class="card-sub" id="s-time">—</div>
     </div>
   </div>
-  <div class="summary-row" style="margin-bottom:18px">
-    <div class="card summary-wide" id="year-card" style="transition:background 0.3s">
-      <div class="card-label">금년 손익</div>
-      <div class="card-value sm" id="s-year">—</div>
-      <div class="card-sub" id="s-year-sub">—</div>
-    </div>
-  </div>
+  <div id="account-summary-area"></div>
 
   <!-- 상태 바 -->
   <div class="status-bar">
@@ -1182,30 +1176,93 @@ function renderSummary() {
     todayCard.style.background = todayPnl >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
   }
 
-  // 금년 손익 (계좌 합산)
-  const yearEl = document.getElementById('s-year');
-  const yearSub = document.getElementById('s-year-sub');
-  const yearCard = document.getElementById('year-card');
-  const totalYearEnd = yearAccounts.reduce((s, a) => s + (a.yearEndVal || 0), 0);
-  const totalRealized = yearAccounts.reduce((s, a) => s + (a.realized || 0), 0);
-  if (totalYearEnd > 0 && hasP) {
-    const yearGain = (totalEval - totalYearEnd) + totalRealized;
-    yearEl.textContent = fmtSign(Math.round(yearGain)) + '원';
-    yearEl.className = 'card-value sm ' + (yearGain >= 0 ? 'up' : 'down');
-    const parts = [];
-    if (yearAccounts.length > 1) parts.push(yearAccounts.length + '개 계좌');
-    if (totalRealized !== 0) parts.push('실현 ' + fmtSign(totalRealized) + '원');
-    yearSub.textContent = parts.join(' · ');
-    if (yearCard) {
-      const yearPct = totalEval > 0 ? Math.abs(yearGain / totalEval) * 100 : 0;
-      const a = (0.03 + Math.min(yearPct / 50, 1) * 0.15).toFixed(2);
-      yearCard.style.background = yearGain >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
+  // 계좌별 요약 (총손익 + 금년 손익)
+  const area = document.getElementById('account-summary-area');
+  if (area) {
+    let html = '';
+    // 계좌별 총손익 집계
+    const acctMap = {};
+    for (const s of pf) {
+      const key = s.acct || '(미지정)';
+      if (!acctMap[key]) acctMap[key] = { cost: 0, eval: 0 };
+      const sCost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
+      acctMap[key].cost += sCost;
+      const p = px[s.id];
+      acctMap[key].eval += p ? p.priceKrw * s.qty : sCost;
     }
-  } else {
-    yearEl.textContent = '—';
-    yearEl.className = 'card-value sm';
-    yearSub.textContent = totalYearEnd > 0 ? '' : '설정에서 계좌 추가';
-    if (yearCard) yearCard.style.background = '';
+    const acctKeys = Object.keys(acctMap).filter(k => k !== '(미지정)').sort();
+    if (acctMap['(미지정)']) acctKeys.push('(미지정)');
+
+    if (acctKeys.length > 1 && hasP) {
+      // 계좌별 총손익 카드
+      let cards = '';
+      for (const key of acctKeys) {
+        const a = acctMap[key];
+        const g = a.eval - a.cost;
+        const pct = a.cost > 0 ? (g / a.cost) * 100 : 0;
+        const cls = g >= 0 ? 'up' : 'down';
+        const alpha = (0.03 + Math.min(Math.abs(pct) / 50, 1) * 0.12).toFixed(2);
+        const bg = g >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
+        cards += `<div class="card" style="flex:1;min-width:0;transition:background 0.3s;background:${bg}">
+          <div class="card-label" style="font-size:11px">${key}</div>
+          <div class="card-value sm ${cls}" style="font-size:14px">${fmtSign(Math.round(g))}원</div>
+          <div class="card-sub" style="font-size:10px">평가 ${fmt(Math.round(a.eval))}원 · ${fmtPct(pct)}</div>
+        </div>`;
+      }
+      html += `<div class="summary-row" style="margin-bottom:10px">${cards}</div>`;
+    }
+
+    // 금년 손익 (전체 합산 + 계좌별)
+    const totalYearEnd = yearAccounts.reduce((s, a) => s + (a.yearEndVal || 0), 0);
+    const totalRealized = yearAccounts.reduce((s, a) => s + (a.realized || 0), 0);
+    if (totalYearEnd > 0 && hasP) {
+      const yearGain = (totalEval - totalYearEnd) + totalRealized;
+      const cls = yearGain >= 0 ? 'up' : 'down';
+      const yearPct = totalEval > 0 ? Math.abs(yearGain / totalEval) * 100 : 0;
+      const alpha = (0.03 + Math.min(yearPct / 50, 1) * 0.15).toFixed(2);
+      const bg = yearGain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
+      let subParts = [];
+      if (totalRealized !== 0) subParts.push('실현 ' + fmtSign(totalRealized) + '원');
+      // 전체 금년 손익 카드
+      html += `<div class="summary-row" style="margin-bottom:6px">
+        <div class="card summary-wide" style="transition:background 0.3s;background:${bg}">
+          <div class="card-label">금년 손익</div>
+          <div class="card-value sm ${cls}">${fmtSign(Math.round(yearGain))}원</div>
+          <div class="card-sub">${subParts.join(' · ')}</div>
+        </div>
+      </div>`;
+
+      // 계좌별 금년 손익
+      if (yearAccounts.length > 1) {
+        let yCards = '';
+        for (const ya of yearAccounts) {
+          if (!ya.yearEndVal) continue;
+          const aEval = acctMap[ya.name] ? acctMap[ya.name].eval : 0;
+          const yg = (aEval - ya.yearEndVal) + (ya.realized || 0);
+          const yCls = yg >= 0 ? 'up' : 'down';
+          const yAlpha = (0.03 + Math.min(Math.abs(aEval > 0 ? yg / aEval * 100 : 0) / 50, 1) * 0.12).toFixed(2);
+          const yBg = yg >= 0 ? `rgba(16,185,129,${yAlpha})` : `rgba(239,68,68,${yAlpha})`;
+          let ySub = [];
+          if (ya.realized) ySub.push('실현 ' + fmtSign(ya.realized) + '원');
+          yCards += `<div class="card" style="flex:1;min-width:0;transition:background 0.3s;background:${yBg}">
+            <div class="card-label" style="font-size:11px">${ya.name} 금년</div>
+            <div class="card-value sm ${yCls}" style="font-size:14px">${fmtSign(Math.round(yg))}원</div>
+            <div class="card-sub" style="font-size:10px">${ySub.join(' · ')}</div>
+          </div>`;
+        }
+        if (yCards) html += `<div class="summary-row" style="margin-bottom:10px">${yCards}</div>`;
+      }
+    } else if (yearAccounts.length === 0) {
+      html += `<div class="summary-row" style="margin-bottom:18px">
+        <div class="card summary-wide">
+          <div class="card-label">금년 손익</div>
+          <div class="card-value sm">—</div>
+          <div class="card-sub" style="font-size:10px">📊 에서 계좌 추가</div>
+        </div>
+      </div>`;
+    }
+    if (html) html = '<div style="margin-bottom:12px">' + html + '</div>';
+    area.innerHTML = html;
   }
 }
 
