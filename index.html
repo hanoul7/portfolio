@@ -949,24 +949,11 @@ function isKrMarketOpen() {
   return (h > 9 || (h === 9 && m >= 0)) && (h < 15 || (h === 15 && m <= 30));
 }
 
-// ── 한국 주식 현재가 (Yahoo Finance primary, KIS fallback) ──
+// ── 한국 주식 현재가 (KIS API primary) ──
 async function fetchKR(ticker, tok) {
   const code = ticker.replace(/\D/g, '').padStart(6, '0');
   const cacheKey = 'kr_px_' + code;
-  // 1) Yahoo Finance (.KS → .KQ fallback)
-  for (const suffix of ['.KS', '.KQ']) {
-    try {
-      const r = await fetch(`/api/quote?symbol=${code}${suffix}&market=KR`);
-      const d = await r.json();
-      if (d.price > 0) {
-        const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
-        const result = { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: d.name || null, marketState: d.marketState };
-        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e) {}
-        return result;
-      }
-    } catch(e) {}
-  }
-  // 2) KIS API fallback (장중)
+  // 1) KIS API
   if (tok) {
     try {
       const r = await fetch(
@@ -992,10 +979,19 @@ async function fetchKR(ticker, tok) {
       }
     } catch(e) {}
   }
-  // 3) 캐시 fallback
+  // 2) KIS 실패: 캐시된 KIS 가격 우선
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey));
     if (cached && cached.priceKrw > 0) return cached;
+  } catch(e) {}
+  // 3) 캐시도 없으면 Yahoo Finance fallback
+  try {
+    const r = await fetch(`/api/quote?symbol=${code}&market=KR`);
+    const d = await r.json();
+    if (d.price > 0) {
+      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
+      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: null, marketState: d.marketState };
+    }
   } catch(e) {}
   return null;
 }
@@ -2343,20 +2339,23 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ── 자동 갱신 3분 ──
-// 스마트 갱신: 장중 10초, 장외 1시간
+// ── 스마트 자동 갱신 ──
+// 장중: KIS(refreshAll) 30초, 그외(refreshNonKR) 10초
+// 장외: KIS(refreshAll) 30분, 그외(refreshNonKR) 10초
 let lastKrRefresh = 0;
+// KIS 갱신 (장중 30초, 장외 30분)
 setInterval(() => {
   const krOpen = isKrMarketOpen();
   const now = Date.now();
-  // 장외일 때 KR은 1시간 간격, 나머지는 항상 갱신
-  if (!krOpen && now - lastKrRefresh < 3600 * 1000) {
-    // KR 제외하고 US/GOLD/SILVER만 갱신
-    refreshNonKR();
-  } else {
+  const interval = krOpen ? 30 * 1000 : 30 * 60 * 1000;
+  if (now - lastKrRefresh >= interval) {
     lastKrRefresh = now;
     refreshAll();
   }
+}, 1000);
+// Non-KR 갱신 (항상 10초)
+setInterval(() => {
+  refreshNonKR();
 }, 10 * 1000);
 
 // ── 시작 ──
