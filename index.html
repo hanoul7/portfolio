@@ -195,7 +195,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   grid-template-columns: 1fr auto;
   gap: 4px 16px;
   align-items: center;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, background 0.3s;
   position: relative;
   overflow: hidden;
 }
@@ -953,6 +953,7 @@ function renderList() {
 
     let priceHtml = '<div class="loading-row">조회 중...</div>';
     let cardCls = '';
+    let cardStyle = '';
     let pnlHtml = '';
     let detailHtml = '';
 
@@ -963,6 +964,11 @@ function renderList() {
       const chgCls = p.changeRatio >= 0 ? 'up' : 'down';
       const gainCls = gain >= 0 ? 'up' : 'down';
       cardCls = gainCls;
+      // 손익 퍼센트에 따른 배경 채도 (0%→투명, ±30%이상→최대)
+      const intensity = Math.min(Math.abs(gainPct) / 30, 1);
+      const alpha = (0.04 + intensity * 0.12).toFixed(3);
+      const bgColor = gain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
+      cardStyle = `background:${bgColor};`;
 
       const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> XAU (P ${goldPremium.toFixed(2)})</span>` : '';
       const ms = (p.marketState || '').toUpperCase();
@@ -989,6 +995,7 @@ function renderList() {
           <div class="detail-item">
             <div class="detail-label">비중</div>
             <div class="detail-val">${weight.toFixed(1)}%</div>
+            <div style="margin-top:4px;height:3px;border-radius:2px;background:var(--border)"><div style="height:100%;border-radius:2px;background:var(--accent);width:${Math.min(weight,100)}%"></div></div>
           </div>
         </div>`;
     } else if (!appKey) {
@@ -998,7 +1005,7 @@ function renderList() {
     const acctHtml = s.acct ? `<span style="color:var(--accent);font-size:10px;font-weight:600">${s.acct}</span>` : '';
 
     return `
-      <div class="stock-card ${cardCls}" onclick="openEditModal('${s.id}')" style="cursor:pointer">
+      <div class="stock-card ${cardCls}" onclick="openEditModal('${s.id}')" style="cursor:pointer;${cardStyle}">
         <button class="del-btn" onclick="event.stopPropagation();delStock('${s.id}')">✕</button>
         <div class="stock-left">
           <div class="stock-name">${s.name} ${badge} ${acctHtml}</div>
