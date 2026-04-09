@@ -259,6 +259,9 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 .detail-item { text-align: center; }
 .detail-label { font-size: 10px; color: var(--text3); margin-bottom: 2px; }
 .detail-val { font-size: 12px; font-family: var(--mono); color: var(--text2); }
+.detail-gain { font-size: 13px; font-weight: 700; }
+.detail-gain.up { color: var(--up); }
+.detail-gain.down { color: var(--down); }
 
 .del-btn {
   position: absolute; top: 10px; right: 10px;
@@ -931,6 +934,13 @@ function renderList() {
     return;
   }
   cnt.textContent = `${pf.length}개 종목`;
+  // 전체 평가금액 계산 (비중용)
+  let totalEval = 0;
+  for (const s of pf) {
+    const p = px[s.id];
+    if (p) totalEval += p.priceKrw * s.qty;
+    else totalEval += (s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty);
+  }
   el.innerHTML = pf.map(s => {
     const p = px[s.id];
     const cost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
@@ -965,6 +975,7 @@ function renderList() {
           <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
         </div>`;
 
+      const weight = totalEval > 0 ? (ev / totalEval * 100) : 0;
       pnlHtml = `
         <div class="stock-detail">
           <div class="detail-item">
@@ -973,11 +984,11 @@ function renderList() {
           </div>
           <div class="detail-item">
             <div class="detail-label">손익</div>
-            <div class="detail-val ${gainCls}">${fmtSign(gain)}원</div>
+            <div class="detail-val detail-gain ${gainCls}">${fmtSign(gain)}원 (${fmtPct(gainPct)})</div>
           </div>
           <div class="detail-item">
-            <div class="detail-label">수익률</div>
-            <div class="detail-val ${gainCls}">${fmtPct(gainPct)}</div>
+            <div class="detail-label">비중</div>
+            <div class="detail-val">${weight.toFixed(1)}%</div>
           </div>
         </div>`;
     } else if (!appKey) {
