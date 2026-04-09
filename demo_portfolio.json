@@ -1,0 +1,255 @@
+{
+  "appKey": "",
+  "appSecret": "",
+  "portfolio": [
+    {
+      "id": "demo_kr_1",
+      "market": "KR",
+      "ticker": "005930",
+      "name": "삼성전자",
+      "avg": 62000,
+      "qty": 100,
+      "acct": "국내투자"
+    },
+    {
+      "id": "demo_kr_2",
+      "market": "KR",
+      "ticker": "000660",
+      "name": "SK하이닉스",
+      "avg": 178000,
+      "qty": 30,
+      "acct": "국내투자"
+    },
+    {
+      "id": "demo_kr_3",
+      "market": "KR",
+      "ticker": "035420",
+      "name": "NAVER",
+      "avg": 195000,
+      "qty": 20,
+      "acct": "국내투자"
+    },
+    {
+      "id": "demo_kr_4",
+      "market": "KR",
+      "ticker": "035720",
+      "name": "카카오",
+      "avg": 42000,
+      "qty": 50,
+      "acct": "국내투자"
+    },
+    {
+      "id": "demo_us_1",
+      "market": "US",
+      "ticker": "AAPL",
+      "name": "Apple",
+      "avg": 185.50,
+      "qty": 40,
+      "acct": "해외투자",
+      "avgFx": 1320
+    },
+    {
+      "id": "demo_us_2",
+      "market": "US",
+      "ticker": "NVDA",
+      "name": "NVIDIA",
+      "avg": 98.30,
+      "qty": 50,
+      "acct": "해외투자",
+      "avgFx": 1350
+    },
+    {
+      "id": "demo_us_3",
+      "market": "US",
+      "ticker": "TSLA",
+      "name": "Tesla",
+      "avg": 215.00,
+      "qty": 20,
+      "acct": "해외투자",
+      "avgFx": 1340
+    },
+    {
+      "id": "demo_us_4",
+      "market": "US",
+      "ticker": "MSFT",
+      "name": "Microsoft",
+      "avg": 378.00,
+      "qty": 15,
+      "acct": "해외투자",
+      "avgFx": 1330
+    },
+    {
+      "id": "demo_gold_1",
+      "market": "GOLD",
+      "ticker": "GOLD",
+      "name": "금현물(XAU)",
+      "avg": 95000,
+      "qty": 50,
+      "acct": "실물자산"
+    },
+    {
+      "id": "demo_silver_1",
+      "market": "SILVER",
+      "ticker": "SILVER",
+      "name": "은현물(XAG)",
+      "avg": 1050,
+      "qty": 200,
+      "acct": "실물자산"
+    }
+  ],
+  "goldPremium": 1.02,
+  "yearAccounts": [
+    {
+      "name": "국내투자",
+      "yearEndPnl": -850000,
+      "realized": 320000,
+      "feeRate": 0,
+      "taxRate": 0
+    },
+    {
+      "name": "해외투자",
+      "yearEndPnl": 4200000,
+      "realized": 1150000,
+      "feeRate": 0.25,
+      "taxRate": 22,
+      "yearEndFx": 1380
+    },
+    {
+      "name": "실물자산",
+      "yearEndPnl": 520000,
+      "realized": 0,
+      "feeRate": 0,
+      "taxRate": 0
+    }
+  ],
+  "journalLog": [
+    {
+      "id": "1709200000000",
+      "date": "2026-02-15",
+      "time": "10:30",
+      "title": "NVIDIA 20주 매수, 카카오 30주 매수",
+      "desc": "AI 반도체 비중 확대 + 카카오 저가 매수",
+      "trades": [
+        {
+          "ticker": "NVDA",
+          "market": "US",
+          "name": "NVIDIA",
+          "acct": "해외투자",
+          "type": "buy",
+          "qty": 20,
+          "price": 105.40,
+          "avgFx": 1350,
+          "realized": 0
+        },
+        {
+          "ticker": "035720",
+          "market": "KR",
+          "name": "카카오",
+          "acct": "국내투자",
+          "type": "buy",
+          "qty": 30,
+          "price": 41500,
+          "avgFx": 0,
+          "realized": 0
+        }
+      ]
+    },
+    {
+      "id": "1711000000000",
+      "date": "2026-03-20",
+      "time": "14:15",
+      "title": "SK하이닉스 10주 매도 (+520,000원)",
+      "desc": "목표가 도달로 일부 차익실현",
+      "trades": [
+        {
+          "ticker": "000660",
+          "market": "KR",
+          "name": "SK하이닉스",
+          "acct": "국내투자",
+          "type": "sell",
+          "qty": 10,
+          "price": 230000,
+          "avgFx": 0,
+          "realized": 520000
+        }
+      ]
+    }
+  ],
+  "dailyPnl": [
+    { "date": "2026-01-02", "value": 120000, "missed": false },
+    { "date": "2026-01-03", "value": 185000, "missed": false },
+    { "date": "2026-01-04", "value": -42000, "missed": true },
+    { "date": "2026-01-05", "value": -42000, "missed": true },
+    { "date": "2026-01-06", "value": 210000, "missed": false },
+    { "date": "2026-01-07", "value": 350000, "missed": false },
+    { "date": "2026-01-08", "value": 280000, "missed": false },
+    { "date": "2026-01-09", "value": 415000, "missed": false },
+    { "date": "2026-01-10", "value": 520000, "missed": false },
+    { "date": "2026-01-13", "value": 620000, "missed": false },
+    { "date": "2026-01-14", "value": 580000, "missed": false },
+    { "date": "2026-01-15", "value": 710000, "missed": false },
+    { "date": "2026-01-16", "value": 830000, "missed": false },
+    { "date": "2026-01-17", "value": 760000, "missed": false },
+    { "date": "2026-01-20", "value": 920000, "missed": false },
+    { "date": "2026-01-21", "value": 1050000, "missed": false },
+    { "date": "2026-01-22", "value": 980000, "missed": false },
+    { "date": "2026-01-23", "value": 1120000, "missed": false },
+    { "date": "2026-01-24", "value": 1240000, "missed": false },
+    { "date": "2026-01-27", "value": 1180000, "missed": false },
+    { "date": "2026-01-28", "value": 1350000, "missed": false },
+    { "date": "2026-01-29", "value": 1420000, "missed": false },
+    { "date": "2026-01-30", "value": 1510000, "missed": false },
+    { "date": "2026-01-31", "value": 1380000, "missed": false },
+    { "date": "2026-02-03", "value": 1460000, "missed": false },
+    { "date": "2026-02-04", "value": 1520000, "missed": false },
+    { "date": "2026-02-05", "value": 1380000, "missed": false },
+    { "date": "2026-02-06", "value": 1290000, "missed": false },
+    { "date": "2026-02-07", "value": 1450000, "missed": false },
+    { "date": "2026-02-10", "value": 1580000, "missed": false },
+    { "date": "2026-02-11", "value": 1670000, "missed": false },
+    { "date": "2026-02-12", "value": 1720000, "missed": false },
+    { "date": "2026-02-13", "value": 1650000, "missed": false },
+    { "date": "2026-02-14", "value": 1810000, "missed": false },
+    { "date": "2026-02-15", "value": 1950000, "missed": false, "journalId": "1709200000000" },
+    { "date": "2026-02-17", "value": 2050000, "missed": false },
+    { "date": "2026-02-18", "value": 2120000, "missed": false },
+    { "date": "2026-02-19", "value": 1980000, "missed": false },
+    { "date": "2026-02-20", "value": 2180000, "missed": false },
+    { "date": "2026-02-21", "value": 2250000, "missed": false },
+    { "date": "2026-02-24", "value": 2350000, "missed": false },
+    { "date": "2026-02-25", "value": 2420000, "missed": false },
+    { "date": "2026-02-26", "value": 2310000, "missed": false },
+    { "date": "2026-02-27", "value": 2480000, "missed": false },
+    { "date": "2026-02-28", "value": 2560000, "missed": false },
+    { "date": "2026-03-02", "value": 2620000, "missed": false },
+    { "date": "2026-03-03", "value": 2510000, "missed": false },
+    { "date": "2026-03-04", "value": 2680000, "missed": false },
+    { "date": "2026-03-05", "value": 2750000, "missed": false },
+    { "date": "2026-03-06", "value": 2830000, "missed": false },
+    { "date": "2026-03-09", "value": 2910000, "missed": false },
+    { "date": "2026-03-10", "value": 2780000, "missed": false },
+    { "date": "2026-03-11", "value": 2960000, "missed": false },
+    { "date": "2026-03-12", "value": 3050000, "missed": false },
+    { "date": "2026-03-13", "value": 2920000, "missed": false },
+    { "date": "2026-03-16", "value": 3100000, "missed": false },
+    { "date": "2026-03-17", "value": 3180000, "missed": false },
+    { "date": "2026-03-18", "value": 3250000, "missed": false },
+    { "date": "2026-03-19", "value": 3150000, "missed": false },
+    { "date": "2026-03-20", "value": 3420000, "missed": false, "journalId": "1711000000000" },
+    { "date": "2026-03-23", "value": 3380000, "missed": false },
+    { "date": "2026-03-24", "value": 3520000, "missed": false },
+    { "date": "2026-03-25", "value": 3610000, "missed": false },
+    { "date": "2026-03-26", "value": 3480000, "missed": false },
+    { "date": "2026-03-27", "value": 3650000, "missed": false },
+    { "date": "2026-03-30", "value": 3720000, "missed": false },
+    { "date": "2026-03-31", "value": 3810000, "missed": false },
+    { "date": "2026-04-01", "value": 3750000, "missed": false },
+    { "date": "2026-04-02", "value": 3880000, "missed": false },
+    { "date": "2026-04-03", "value": 3950000, "missed": false },
+    { "date": "2026-04-06", "value": 3820000, "missed": false },
+    { "date": "2026-04-07", "value": 4010000, "missed": false },
+    { "date": "2026-04-08", "value": 4080000, "missed": false },
+    { "date": "2026-04-09", "value": 3960000, "missed": false },
+    { "date": "2026-04-10", "value": 4150000, "missed": false }
+  ]
+}
