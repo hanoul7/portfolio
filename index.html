@@ -619,8 +619,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     <div class="form-grid">
       <input type="hidden" id="f-mkt" value="KR" />
       <div class="ff form-full">
-        <label class="fl">종목코드 / 티커 <span style="font-weight:400;font-size:10px;color:var(--text3)">숫자6자리=한국 · 영문=미국 · GOLD=금 · 한글=수기</span></label>
-        <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD" autocomplete="off" autocapitalize="characters" lang="en" inputmode="latin" onblur="lookupName()" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupName();document.getElementById('f-avg').focus();}" tabindex="1" />
+        <label class="fl">종목코드 / 티커 <span style="font-weight:400;font-size:10px;color:var(--text3)">숫자=한국 · 영문=미국 · GOLD · SILVER · 한글=수기</span></label>
+        <input id="f-tick" type="text" placeholder="000660 / AAPL / GOLD / XAG" autocomplete="off" autocapitalize="characters" lang="en" inputmode="latin" onblur="lookupName()" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupName();document.getElementById('f-avg').focus();}" tabindex="1" />
       </div>
       <div class="ff">
         <label class="fl" id="f-avg-label">평균 매입단가 (원)</label>
@@ -1140,16 +1140,14 @@ async function refreshAll() {
   const krJobs = jobs.filter(j => j.market === 'KR');
   const usJobs = jobs.filter(j => j.market === 'US');
   const goldJobs = jobs.filter(j => j.market === 'GOLD');
+  const silverJobs = jobs.filter(j => j.market === 'SILVER');
 
-  // US + GOLD + MANUAL 병렬
+  // US + GOLD + SILVER + MANUAL 병렬
   const usGoldPromises = [
     ...usJobs.map(j => fetchUS(j.ticker).then(p => { cache['US:' + j.ticker] = p; })),
     ...goldJobs.map(j => fetchGold().then(p => { cache['GOLD:' + j.ticker] = p; })),
-    ...manualJobs.map(j => {
-      const isSilver = /은현물|실버|SILVER|XAG/i.test(j.ticker);
-      if (!isSilver) return Promise.resolve();
-      return fetchSilver().then(p => { if (p) cache['MANUAL:' + j.ticker] = p; });
-    }),
+    ...silverJobs.map(j => fetchSilver().then(p => { cache['SILVER:' + j.ticker] = p; })),
+    ...manualJobs.map(j => Promise.resolve()),
   ];
 
   // KR은 2개씩 병렬 (KIS API 초당 제한 대응)
@@ -1328,12 +1326,14 @@ function renderStockCard(s, totalEval) {
   const cost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
   const badge = s.market === 'GOLD'
     ? '<span class="badge badge-gold">GOLD</span>'
+    : s.market === 'SILVER'
+    ? '<span class="badge" style="background:rgba(160,160,170,0.12);color:#8a8a9a">SILVER</span>'
     : s.market === 'MANUAL'
     ? '<span class="badge" style="background:var(--bg4);color:var(--text3)">수기</span>'
     : s.market === 'KR'
     ? '<span class="badge badge-kr">KR</span>'
     : '<span class="badge badge-us">US</span>';
-  const unit = s.market === 'GOLD' ? 'g' : '주';
+  const unit = (s.market === 'GOLD' || s.market === 'SILVER') ? 'g' : '주';
 
   let priceHtml = '<div class="loading-row">조회 중...</div>';
   let cardCls = '';
@@ -1354,7 +1354,8 @@ function renderStockCard(s, totalEval) {
     const borderColor = gain >= 0 ? `rgba(16,185,129,${(step * 0.35).toFixed(2)})` : `rgba(239,68,68,${(step * 0.35).toFixed(2)})`;
     cardStyle = `background:${bgColor};border-color:${borderColor};`;
 
-    const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>` : '';
+    const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>`
+      : s.market === 'SILVER' ? `<span style="font-size:10px;color:#8a8a9a"> ${p.name || ''}</span>` : '';
     const ms = (p.marketState || '').toUpperCase();
     const msLabel = ms.includes('PRE') ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
       : ms.includes('POST') ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
@@ -1558,7 +1559,8 @@ function renderSummary() {
 
 // ── 종목명 자동조회 ──
 function detectMarket(tick) {
-  if (/^(GOLD|GLD)$/i.test(tick)) return 'GOLD';
+  if (/^(GOLD|GLD|XAU)$/i.test(tick)) return 'GOLD';
+  if (/^(SILVER|XAG)$/i.test(tick)) return 'SILVER';
   if (/^\d{1,6}$/.test(tick)) return 'KR';
   if (/[가-힣]/.test(tick)) return 'MANUAL';
   return 'US';
@@ -1583,17 +1585,12 @@ async function lookupName() {
   if (isUS && !document.getElementById('f-avgfx').value) {
     document.getElementById('f-avgfx').value = usdkrw > 0 ? Math.round(usdkrw) : '';
   }
-  document.getElementById('f-qty-unit').textContent = mkt === 'GOLD' ? 'g' : '주';
+  document.getElementById('f-qty-unit').textContent = (mkt === 'GOLD' || mkt === 'SILVER') ? 'g' : '주';
 
   // 수기입력
   if (isManual) {
-    const isSilver = /은현물|실버|SILVER|XAG/i.test(tick);
-    nameEl.value = isSilver ? '은현물(XAG)' : tick;
-    if (isSilver) {
-      hint.innerHTML = '✓ <strong style="color:var(--text)">은현물(XAG)</strong> <span style="color:var(--text3);font-size:10px">국제시세 자동조회 · 프리미엄 수기 적용</span>';
-    } else {
-      hint.innerHTML = `✓ <strong style="color:var(--text)">수기입력</strong> <span style="color:var(--text3);font-size:10px">현재가를 직접 입력하세요</span>`;
-    }
+    nameEl.value = tick;
+    hint.innerHTML = `✓ <strong style="color:var(--text)">수기입력</strong> <span style="color:var(--text3);font-size:10px">현재가를 직접 입력하세요</span>`;
     hint.style.color = '#0a8a4a';
     return;
   }
@@ -1602,6 +1599,14 @@ async function lookupName() {
   if (mkt === 'GOLD') {
     nameEl.value = '금현물(XAU)';
     hint.innerHTML = '✓ <strong style="color:var(--text)">금현물(XAU)</strong>';
+    hint.style.color = '#0a8a4a';
+    return;
+  }
+
+  // 은현물
+  if (mkt === 'SILVER') {
+    nameEl.value = '은현물(XAG)';
+    hint.innerHTML = '✓ <strong style="color:var(--text)">은현물(XAG)</strong> <span style="color:var(--text3);font-size:10px">국제시세 자동 · 프리미엄은 📊에서 설정</span>';
     hint.style.color = '#0a8a4a';
     return;
   }
@@ -1648,6 +1653,7 @@ async function addStock() {
   const mkt = detectMarket(tick);
   document.getElementById('f-mkt').value = mkt;
   if (mkt === 'GOLD') tick = 'GOLD';
+  if (mkt === 'SILVER') tick = 'SILVER';
   const name = document.getElementById('f-name').value.trim() || tick;
   const avg = parseFloat(document.getElementById('f-avg').value);
   const qty = parseInt(document.getElementById('f-qty').value);
@@ -1689,6 +1695,7 @@ async function addStock() {
       const s = pf.find(x => x.id === id);
       let p;
       if (s.market === 'GOLD') p = await fetchGold();
+      else if (s.market === 'SILVER') p = await fetchSilver();
       else if (s.market === 'KR') p = await fetchKR(tick, tok);
       else p = await fetchUS(tick);
       if (p) {
@@ -1745,7 +1752,7 @@ function openEditModal(id) {
   document.getElementById('e-avgfx').value = s.avgFx || '';
   document.getElementById('e-manual-wrap').style.display = s.market === 'MANUAL' ? '' : 'none';
   document.getElementById('e-manual-price').value = s.manualPrice || '';
-  document.getElementById('e-qty-unit').textContent = s.market === 'GOLD' ? 'g' : '주';
+  document.getElementById('e-qty-unit').textContent = (s.market === 'GOLD' || s.market === 'SILVER') ? 'g' : '주';
   document.getElementById('e-qty').value = s.qty;
   document.getElementById('e-acct').value = s.acct || '';
   document.getElementById('edit-err').textContent = '';
