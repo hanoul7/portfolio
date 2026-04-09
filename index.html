@@ -1884,7 +1884,7 @@ function renderYearAccounts() {
     const fxField = hasUS ? `
       <div style="flex:1">
         <div style="font-size:10px;color:var(--text3);margin-bottom:2px">작년말 환율</div>
-        <input type="number" value="${acc.yearEndFx || ''}" placeholder="예: 1480" data-ya="${i}" data-field="yearEndFx" inputmode="decimal" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+        <input type="text" data-comma value="${acc.yearEndFx ? acc.yearEndFx.toLocaleString() : ''}" placeholder="예: 1,480" data-ya="${i}" data-field="yearEndFx" inputmode="decimal" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
       </div>` : '';
     return `
     <div style="margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
@@ -1892,11 +1892,11 @@ function renderYearAccounts() {
       <div style="display:flex;gap:6px;margin-bottom:6px">
         <div style="flex:1">
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">작년말 손익액</div>
-          <input type="number" value="${acc.yearEndPnl || ''}" placeholder="0" data-ya="${i}" data-field="yearEndPnl" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+          <input type="text" data-comma value="${acc.yearEndPnl ? acc.yearEndPnl.toLocaleString() : ''}" placeholder="0" data-ya="${i}" data-field="yearEndPnl" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
         </div>
         <div style="flex:1">
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">금년 실현 수익금</div>
-          <input type="number" value="${acc.realized || ''}" placeholder="0" data-ya="${i}" data-field="realized" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+          <input type="text" data-comma value="${acc.realized ? acc.realized.toLocaleString() : ''}" placeholder="0" data-ya="${i}" data-field="realized" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
         </div>
         ${fxField}
       </div>
@@ -1918,7 +1918,7 @@ function saveYearAccounts() {
   document.querySelectorAll('[data-ya]').forEach(el => {
     const i = parseInt(el.dataset.ya);
     if (!yearAccounts[i]) return;
-    yearAccounts[i][el.dataset.field] = parseFloat(el.value) || 0;
+    yearAccounts[i][el.dataset.field] = el.hasAttribute('data-comma') ? commaVal(el) : (parseFloat(el.value) || 0);
   });
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
   // 프리미엄 저장
