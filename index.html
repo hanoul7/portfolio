@@ -1101,7 +1101,12 @@ async function refreshAll() {
     const p = cache[cacheKey];
     if (p) {
       px[s.id] = p;
-      if (p.name && p.name !== s.ticker) s.name = p.name;
+      // 한글 이름이 이미 있으면 영문/Yahoo 이름으로 덮어쓰지 않음
+      if (p.name && p.name !== s.ticker) {
+        const hasKorean = /[가-힣]/.test(s.name);
+        const newHasKorean = /[가-힣]/.test(p.name);
+        if (!hasKorean || newHasKorean) s.name = p.name;
+      }
       ok++;
     } else fail++;
   }
