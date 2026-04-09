@@ -1247,6 +1247,36 @@ async function refreshAll() {
   render();
 }
 
+// ── 장외 시간 US/GOLD/SILVER만 갱신 ──
+async function refreshNonKR() {
+  if (refreshing) return;
+  refreshing = true;
+  await fetchRate();
+  const cache = {};
+  const uniqueKeys = {};
+  for (const s of pf) {
+    const ck = s.market + ':' + s.ticker;
+    if (!uniqueKeys[ck]) uniqueKeys[ck] = { market: s.market, ticker: s.ticker };
+  }
+  const jobs = Object.values(uniqueKeys);
+  const promises = [
+    ...jobs.filter(j => j.market === 'US').map(j => fetchUS(j.ticker).then(p => { cache['US:' + j.ticker] = p; })),
+    ...jobs.filter(j => j.market === 'GOLD').map(j => fetchGold().then(p => { cache['GOLD:' + j.ticker] = p; })),
+    ...jobs.filter(j => j.market === 'SILVER').map(j => fetchSilver().then(p => { cache['SILVER:' + j.ticker] = p; })),
+  ];
+  if (promises.length > 0) {
+    await Promise.all(promises);
+    for (const s of pf) {
+      const p = cache[s.market + ':' + s.ticker];
+      if (p) px[s.id] = p;
+    }
+    const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('update-time').textContent = now;
+    render();
+  }
+  refreshing = false;
+}
+
 // ── 렌더링 ──
 function render() {
   renderSummary();
@@ -1549,6 +1579,8 @@ function renderSummary() {
         }
       }
       const yearGain = (totalCurPnl - totalYearEndPnl) + totalRealized + totalFxGain;
+      // 일별 금년 손익 기록
+      saveYearGainHistory(yearGain);
       const cls = yearGain >= 0 ? 'up' : 'down';
       const totalAcctCost = Object.values(acctMap).reduce((s, a) => s + a.cost, 0);
       const yearPctVal = totalAcctCost > 0 ? (yearGain / totalAcctCost) * 100 : 0;
@@ -1942,9 +1974,9 @@ function saveYearAccounts() {
 }
 
 // ── 비중 차트 ──
-function openChartModal() {
-  renderChartContent();
+async function openChartModal() {
   document.getElementById('chart-modal').classList.add('open');
+  await renderChartContent();
 }
 function closeChartModal() { document.getElementById('chart-modal').classList.remove('open'); }
 
@@ -1978,11 +2010,102 @@ function buildPieCSS(items, size) {
   </div>`;
 }
 
-function renderChartContent() {
+// KR 종목 Yahoo 티커 변환
+function krToYahoo(code) {
+  return code.replace(/\D/g,'').padStart(6,'0') + '.KS';
+}
+
+function toYahooSymbol(s) {
+  if (s.market === 'US') return s.ticker;
+  if (s.market === 'KR') return krToYahoo(s.ticker);
+  if (s.market === 'GOLD') return 'GC=F';
+  if (s.market === 'SILVER') return 'SI=F';
+  return null; // MANUAL 제외
+}
+
+async function fetchChartHistory(symbol) {
+  try {
+    const r = await fetch(`/api/chart-history?symbol=${encodeURIComponent(symbol)}&range=ytd`);
+    if (!r.ok) {
+      // .KS 실패 시 .KQ로 재시도
+      if (symbol.endsWith('.KS')) {
+        const kq = symbol.replace('.KS', '.KQ');
+        const r2 = await fetch(`/api/chart-history?symbol=${encodeURIComponent(kq)}&range=ytd`);
+        if (r2.ok) { const d2 = await r2.json(); return d2.data || null; }
+      }
+      return null;
+    }
+    const d = await r.json();
+    if (d.data && d.data.length > 0) return d.data;
+    // 데이터 비어있으면 .KQ 시도
+    if (symbol.endsWith('.KS')) {
+      const kq = symbol.replace('.KS', '.KQ');
+      const r2 = await fetch(`/api/chart-history?symbol=${encodeURIComponent(kq)}&range=ytd`);
+      if (r2.ok) { const d2 = await r2.json(); return d2.data || null; }
+    }
+    return null;
+  } catch(e) { return null; }
+}
+
+function buildLineChart(dataPoints, height) {
+  if (!dataPoints || dataPoints.length < 2) return '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">데이터 부족</div>';
+  const W = 600, H = height || 180, PAD = 30, PADT = 10, PADB = 22;
+  const vals = dataPoints.map(d => d.value);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const xStep = (W - PAD * 2) / (dataPoints.length - 1);
+
+  const points = dataPoints.map((d, i) => ({
+    x: PAD + i * xStep,
+    y: PADT + (1 - (d.value - minV) / range) * (H - PADT - PADB),
+    ...d
+  }));
+
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const lastPt = points[points.length - 1];
+  const firstPt = points[0];
+  const isUp = lastPt.value >= firstPt.value;
+  const color = isUp ? 'var(--up)' : 'var(--down)';
+  const fillColor = isUp ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)';
+
+  // 영역 채우기 path
+  const areaD = pathD + ` L${lastPt.x.toFixed(1)},${H - PADB} L${firstPt.x.toFixed(1)},${H - PADB} Z`;
+
+  // 0선 (금년 손익 기준선)
+  let zeroLine = '';
+  if (minV < 0 && maxV > 0) {
+    const zy = PADT + (1 - (0 - minV) / range) * (H - PADT - PADB);
+    zeroLine = `<line x1="${PAD}" y1="${zy.toFixed(1)}" x2="${W - PAD}" y2="${zy.toFixed(1)}" stroke="var(--text3)" stroke-width="0.5" stroke-dasharray="4,3" />`;
+  }
+
+  // X축 날짜 라벨 (5~6개)
+  const labelStep = Math.max(1, Math.floor(dataPoints.length / 5));
+  const labels = points.filter((_, i) => i % labelStep === 0 || i === points.length - 1)
+    .map(p => `<text x="${p.x.toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="var(--text3)" font-size="9" font-family="var(--mono)">${p.date.slice(5)}</text>`).join('');
+
+  // Y축 라벨
+  const yLabels = [minV, (minV + maxV) / 2, maxV].map(v => {
+    const y = PADT + (1 - (v - minV) / range) * (H - PADT - PADB);
+    return `<text x="${PAD - 4}" y="${y.toFixed(1) + 3}" text-anchor="end" fill="var(--text3)" font-size="9" font-family="var(--mono)">${fmtKr(v)}</text>`;
+  }).join('');
+
+  // 마지막 값 표시
+  const lastLabel = `<circle cx="${lastPt.x.toFixed(1)}" cy="${lastPt.y.toFixed(1)}" r="3.5" fill="${color}" />
+    <text x="${lastPt.x.toFixed(1)}" y="${lastPt.y.toFixed(1) - 8}" text-anchor="end" fill="${color}" font-size="11" font-weight="700" font-family="var(--mono)">${fmtSign(Math.round(lastPt.value))}원</text>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible">
+    ${zeroLine}
+    <path d="${areaD}" fill="${fillColor}" />
+    <path d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+    ${labels}${yLabels}${lastLabel}
+  </svg>`;
+}
+
+async function renderChartContent() {
   const el = document.getElementById('chart-content');
   if (!el) return;
 
-  // 계좌별 비중
+  // 파이 차트 (계좌별 + 시장별)
   const acctMap = {};
   for (const s of pf) {
     const key = s.acct || '(미지정)';
@@ -1995,7 +2118,6 @@ function renderChartContent() {
     .sort((a, b) => b[1] - a[1])
     .map(([name, val], i) => ({ label: name, value: val, color: acctColors[i % acctColors.length] }));
 
-  // 시장별 비중 (GOLD+SILVER → 기타)
   const mktMap = { '한국': 0, '미국': 0, '기타': 0, '비상장': 0 };
   for (const s of pf) {
     const p = px[s.id];
@@ -2003,7 +2125,7 @@ function renderChartContent() {
     if (s.market === 'KR') mktMap['한국'] += ev;
     else if (s.market === 'US') mktMap['미국'] += ev;
     else if (s.market === 'MANUAL') mktMap['비상장'] += ev;
-    else mktMap['기타'] += ev; // GOLD, SILVER
+    else mktMap['기타'] += ev;
   }
   const mktColors = { '한국': '#3b82f6', '미국': '#10b981', '비상장': '#8b5cf6', '기타': '#f59e0b' };
   const mktItems = Object.entries(mktMap)
@@ -2012,6 +2134,11 @@ function renderChartContent() {
     .map(([name, val]) => ({ label: name, value: val, color: mktColors[name] }));
 
   el.innerHTML = `
+    <div id="pf-daily-chart" style="margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>
+      <div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">차트 로딩 중...</div>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
     <div style="margin-bottom:20px">
       <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;letter-spacing:0.05em">계좌별 비중</div>
       ${buildPieCSS(acctItems, 130)}
@@ -2021,6 +2148,78 @@ function renderChartContent() {
       <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;letter-spacing:0.05em">시장별 비중</div>
       ${buildPieCSS(mktItems, 130)}
     </div>`;
+
+  // 비동기로 일봉 차트 로드
+  loadDailyChart();
+}
+
+async function loadDailyChart() {
+  const chartEl = document.getElementById('pf-daily-chart');
+  if (!chartEl) return;
+
+  // 중복 제거: 종목별 Yahoo 심볼 + 수량
+  const stockJobs = [];
+  const seen = {};
+  for (const s of pf) {
+    const sym = toYahooSymbol(s);
+    if (!sym) continue;
+    const key = sym;
+    if (!seen[key]) {
+      seen[key] = { symbol: sym, market: s.market, qty: 0 };
+      stockJobs.push(seen[key]);
+    }
+    seen[key].qty += s.qty;
+  }
+
+  // 환율 히스토리도 함께 조회
+  const allFetches = [
+    ...stockJobs.map(j => fetchChartHistory(j.symbol).then(data => ({ ...j, data }))),
+    fetchChartHistory('KRW=X').then(data => ({ symbol: 'KRW=X', data, isFx: true })),
+  ];
+
+  const results = await Promise.all(allFetches);
+  const fxResult = results.find(r => r.isFx);
+  const fxMap = {};
+  if (fxResult?.data) {
+    for (const d of fxResult.data) fxMap[d.date] = d.close;
+  }
+
+  // 날짜별 포트폴리오 원화 평가액 합산
+  const dateMap = {};
+  for (const r of results) {
+    if (r.isFx || !r.data) continue;
+    const isUS = r.market === 'US';
+    const isGoldSilver = r.market === 'GOLD' || r.market === 'SILVER';
+    const TROY = 31.1034768;
+    for (const d of r.data) {
+      if (!dateMap[d.date]) dateMap[d.date] = 0;
+      let krwPrice = d.close;
+      if (isUS) {
+        const fx = fxMap[d.date] || usdkrw;
+        krwPrice = d.close * fx;
+      } else if (isGoldSilver) {
+        const fx = fxMap[d.date] || usdkrw;
+        krwPrice = d.close * fx / TROY;
+      }
+      dateMap[d.date] += krwPrice * r.qty;
+    }
+  }
+
+  const dates = Object.keys(dateMap).sort();
+  if (dates.length < 2) {
+    chartEl.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>
+      <div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">히스토리 데이터 부족</div>`;
+    return;
+  }
+
+  // 금년 초 평가액 기준 일별 손익
+  const baseVal = dateMap[dates[0]];
+  const dataPoints = dates.map(date => ({
+    date,
+    value: dateMap[date] - baseVal
+  }));
+
+  chartEl.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>` + buildLineChart(dataPoints, 200);
 }
 
 function toggleAcctMore(id, btn, count) {
@@ -2149,7 +2348,20 @@ document.addEventListener('keydown', e => {
 });
 
 // ── 자동 갱신 3분 ──
-setInterval(refreshAll, 30 * 1000);
+// 스마트 갱신: 장중 10초, 장외 1시간
+let lastKrRefresh = 0;
+setInterval(() => {
+  const krOpen = isKrMarketOpen();
+  const now = Date.now();
+  // 장외일 때 KR은 1시간 간격, 나머지는 항상 갱신
+  if (!krOpen && now - lastKrRefresh < 3600 * 1000) {
+    // KR 제외하고 US/GOLD/SILVER만 갱신
+    refreshNonKR();
+  } else {
+    lastKrRefresh = now;
+    refreshAll();
+  }
+}, 10 * 1000);
 
 // ── 시작 ──
 init();
