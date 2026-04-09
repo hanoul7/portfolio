@@ -812,15 +812,12 @@ async function init() {
   if (appKey && appSecret) {
     setSt('loading', token ? '저장된 토큰 사용' : '토큰 발급 중...');
     const tok = await getToken();
-    if (tok) {
-      setSt('ok', '연결됨');
-      await refreshAll();
-    } else {
-      setSt('error', '토큰 발급 실패 — API 키를 확인해주세요');
-    }
+    if (tok) setSt('ok', 'KIS 연결됨');
+    else setSt('loading', 'KIS 토큰 실패 — Yahoo로 조회');
   } else {
-    setSt('', 'API 키를 설정해주세요');
+    setSt('', 'Yahoo Finance 모드 (KIS 키 미설정)');
   }
+  await refreshAll();
 }
 
 function save() {
@@ -1059,34 +1056,24 @@ async function fetchGold() {
     }
   } catch(e) {}
 
-  // 2) 장중이면 KIS API로 411060(ACE KRX금현물) 조회 → 프리미엄 자동 계산
+  // 2) 411060(ACE KRX금현물) Yahoo로 조회 → 프리미엄 자동 계산
   let etfRatio = parseFloat(localStorage.getItem('gold_etf_ratio') || '0');
-  if (isKrMarketOpen() && appKey && appSecret) {
-    try {
-      const tok = await getToken();
-      if (tok) {
-        const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=411060', {
-          headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
-        });
-        const d = await r.json();
-        const o = d?.output;
-        const etfPrice = parseInt(o?.stck_prpr || '0');
-        if (etfPrice > 0 && intlPerGram > 0) {
-          // ETF→g 비율 갱신 (etfPrice × ratio = KRX 금 1g 가격)
-          // 첫 사용 시 또는 비율 없을 때: 국제금 기준으로 초기 비율 추정
-          if (etfRatio <= 0) {
-            etfRatio = intlPerGram / etfPrice;
-            localStorage.setItem('gold_etf_ratio', etfRatio.toFixed(4));
-          }
-          const krxPerGram = etfPrice * etfRatio;
-          const autoPremium = krxPerGram / intlPerGram;
-          goldPremium = Math.round(autoPremium * 10000) / 10000;
-          localStorage.setItem('gold_premium', goldPremium.toString());
-          console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(4), '| ETF:', etfPrice, '| ETF비율:', etfRatio.toFixed(4), '| KRX/g:', Math.round(krxPerGram), '| 국제금/g:', Math.round(intlPerGram));
-        }
+  try {
+    const r = await fetch('/api/quote?symbol=411060.KS&market=KR');
+    const d = await r.json();
+    const etfPrice = d.price > 0 ? d.price : 0;
+    if (etfPrice > 0 && intlPerGram > 0) {
+      if (etfRatio <= 0) {
+        etfRatio = intlPerGram / etfPrice;
+        localStorage.setItem('gold_etf_ratio', etfRatio.toFixed(4));
       }
-    } catch(e) { console.error('[GOLD] 411060 error:', e); }
-  }
+      const krxPerGram = etfPrice * etfRatio;
+      const autoPremium = krxPerGram / intlPerGram;
+      goldPremium = Math.round(autoPremium * 10000) / 10000;
+      localStorage.setItem('gold_premium', goldPremium.toString());
+      console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(4), '| ETF:', etfPrice, '| ETF비율:', etfRatio.toFixed(4), '| KRX/g:', Math.round(krxPerGram), '| 국제금/g:', Math.round(intlPerGram));
+    }
+  } catch(e) { console.error('[GOLD] 411060 error:', e); }
 
   // 3) 프리미엄 1% 미만이면 XAU 환산 그대로, 1% 이상이면 프리미엄 적용
   if (intlPerGram > 0) {
@@ -1173,18 +1160,12 @@ async function fetchIndices() {
 
 // ── 전체 새로고침 ──
 async function refreshAll() {
-  if (refreshing || !appKey || !appSecret) return;
+  if (refreshing) return;
   refreshing = true;
   setSt('loading', '시세 갱신 중...');
   await fetchRate();
   fetchIndices();
-  const tok = await getToken();
-  if (!tok) {
-    setSt('error', 'API 키 오류 — 설정을 확인해주세요');
-    refreshing = false;
-    render();
-    return;
-  }
+  const tok = (appKey && appSecret) ? await getToken() : null;
   let ok = 0, fail = 0;
   // 중복 제거 후 시장별 분류
   const uniqueKeys = {};
@@ -1213,7 +1194,7 @@ async function refreshAll() {
   const applyCache = () => {
     for (const s of pf) {
       const p = cache[s.market + ':' + s.ticker];
-      if (p && !px[s.id]) { px[s.id] = p; if (p.name && p.name !== s.ticker) { const hk = /[가-힣]/.test(s.name); const nk = /[가-힣]/.test(p.name); if (!hk || nk) s.name = p.name; } }
+      if (p && !px[s.id]) { px[s.id] = p; }
     }
     render();
   };
@@ -1720,18 +1701,31 @@ async function lookupName() {
   let name = null;
 
   if (mkt === 'KR') {
-    if (!appKey || !appSecret) return;
-    const tok = await getToken();
-    if (!tok) { hint.textContent = ''; return; }
-    try {
-      const code = tick.replace(/\D/g,'').padStart(6,'0');
-      const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
-        headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
-      });
-      const d = await r.json();
-      const o = d?.output;
-      if (o && o.prdt_abrv_name) name = o.prdt_abrv_name;
-    } catch(e) {}
+    const code = tick.replace(/\D/g,'').padStart(6,'0');
+    // 1) KIS API 우선 (한국명, 키 있을 때)
+    if (appKey && appSecret) {
+      try {
+        const tok = await getToken();
+        if (tok) {
+          const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
+            headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
+          });
+          const d = await r.json();
+          const o = d?.output;
+          if (o && o.prdt_abrv_name) name = o.prdt_abrv_name;
+        }
+      } catch(e) {}
+    }
+    // 2) KIS 실패 시 Yahoo fallback
+    if (!name) {
+      for (const suffix of ['.KS', '.KQ']) {
+        try {
+          const r = await fetch(`/api/quote?symbol=${code}${suffix}&market=KR`);
+          const d = await r.json();
+          if (d.name) { name = d.name; break; }
+        } catch(e) {}
+      }
+    }
   } else {
     try {
       const r = await fetch('/api/stock-name?symbol=' + encodeURIComponent(tick));
@@ -1804,7 +1798,7 @@ async function addStock() {
       else p = await fetchUS(tick);
       if (p) {
         px[id] = p;
-        if (p.name && p.name !== tick) { s.name = p.name; save(); }
+        if (p.name && !s.name) { s.name = p.name; save(); }
         setSt('ok', '갱신 완료');
       } else setSt('error', '시세 조회 실패');
       render();
