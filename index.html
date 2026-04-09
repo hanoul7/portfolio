@@ -1413,10 +1413,11 @@ function renderList() {
     let stocksHtml = visibleHtml;
     if (hiddenStocks.length > 0) {
       const gid = 'acct-more-' + key.replace(/\W/g, '_');
-      stocksHtml += `<div id="${gid}" style="display:none">${hiddenStocks.map(s => renderStockCard(s, totalEval)).join('')}</div>`;
+      const isExpanded = expandedAccts.has(gid);
+      stocksHtml += `<div id="${gid}" style="${isExpanded ? '' : 'display:none'}">${hiddenStocks.map(s => renderStockCard(s, totalEval)).join('')}</div>`;
       stocksHtml += `<div style="text-align:center;padding:6px 0">
         <button onclick="event.stopPropagation();toggleAcctMore('${gid}',this,${hiddenStocks.length})" style="font-size:11px;color:var(--text3);background:none;border:1px solid var(--border);border-radius:8px;padding:4px 14px;cursor:pointer">
-          +${hiddenStocks.length}개 더보기
+          ${isExpanded ? '접기' : `+${hiddenStocks.length}개 더보기`}
         </button>
       </div>`;
     }
@@ -2614,12 +2615,14 @@ function renderChartContent() {
     </div>`;
 }
 
+const expandedAccts = new Set();
 function toggleAcctMore(id, btn, count) {
   const el = document.getElementById(id);
   if (!el) return;
   const hidden = el.style.display === 'none';
   el.style.display = hidden ? '' : 'none';
   btn.textContent = hidden ? '접기' : `+${count}개 더보기`;
+  if (hidden) expandedAccts.add(id); else expandedAccts.delete(id);
 }
 
 function renameAcct(oldName) {
