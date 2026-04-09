@@ -541,6 +541,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     <div class="icon-btn" id="status-wrap" title="연결 상태">
       <div class="status-dot" id="sdot"></div>
     </div>
+    <div class="icon-btn" onclick="openChartModal()" title="비중 차트" style="font-size:15px">🥧</div>
     <div class="icon-btn" onclick="openYearModal()" title="손익 계좌" style="font-size:15px">📊</div>
     <div class="icon-btn" onclick="exportData()" title="내보내기" style="font-size:14px">💾</div>
     <div class="icon-btn" onclick="document.getElementById('import-file').click()" title="가져오기" style="font-size:14px">📂</div>
@@ -759,6 +760,16 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <button class="btn-primary" onclick="saveYearAccounts(); closeYearModal(); render();">저장</button>
       <button class="btn-secondary" onclick="closeYearModal()">취소</button>
     </div>
+  </div>
+</div>
+
+<!-- 비중 차트 모달 -->
+<div class="modal-overlay" id="chart-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">포트폴리오 비중</div>
+    <div id="chart-content"></div>
+    <button class="btn-secondary" onclick="closeChartModal()" style="margin-top:12px">닫기</button>
   </div>
 </div>
 
@@ -1930,6 +1941,88 @@ function saveYearAccounts() {
   if (sp > 0) { silverPremium = sp; localStorage.setItem('silver_premium', sp.toString()); }
 }
 
+// ── 비중 차트 ──
+function openChartModal() {
+  renderChartContent();
+  document.getElementById('chart-modal').classList.add('open');
+}
+function closeChartModal() { document.getElementById('chart-modal').classList.remove('open'); }
+
+function buildPieCSS(items, size) {
+  // items: [{label, value, color}]
+  const total = items.reduce((s, it) => s + it.value, 0);
+  if (total <= 0) return '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">데이터 없음</div>';
+  let gradParts = [], angle = 0;
+  const slices = items.filter(it => it.value > 0).map(it => {
+    const pct = it.value / total * 100;
+    const start = angle;
+    angle += pct * 3.6;
+    return { ...it, pct, start };
+  });
+  slices.forEach((sl, i) => {
+    const startPct = slices.slice(0, i).reduce((s, x) => s + x.pct, 0);
+    const endPct = startPct + sl.pct;
+    gradParts.push(`${sl.color} ${startPct.toFixed(2)}% ${endPct.toFixed(2)}%`);
+  });
+  const pieStyle = `width:${size}px;height:${size}px;border-radius:50%;background:conic-gradient(${gradParts.join(',')});margin:0 auto;box-shadow:0 0 0 3px var(--bg2) inset`;
+  let legendHtml = slices.map(sl => `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      <div style="width:10px;height:10px;border-radius:2px;background:${sl.color};flex-shrink:0"></div>
+      <span style="font-size:12px;color:var(--text1);flex:1">${sl.label}</span>
+      <span style="font-size:12px;font-family:var(--mono);color:var(--text2);font-weight:600">${sl.pct.toFixed(1)}%</span>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${fmtKr(sl.value)}</span>
+    </div>`).join('');
+  return `<div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:center">
+    <div style="${pieStyle}"></div>
+    <div style="min-width:160px;flex:1">${legendHtml}</div>
+  </div>`;
+}
+
+function renderChartContent() {
+  const el = document.getElementById('chart-content');
+  if (!el) return;
+
+  // 계좌별 비중
+  const acctMap = {};
+  for (const s of pf) {
+    const key = s.acct || '(미지정)';
+    if (!acctMap[key]) acctMap[key] = 0;
+    const p = px[s.id];
+    acctMap[key] += p ? p.priceKrw * s.qty : (s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty);
+  }
+  const acctColors = ['#6366f1','#0ea5e9','#14b8a6','#f59e0b','#ec4899','#8b5cf6','#2563eb','#ef4444'];
+  const acctItems = Object.entries(acctMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, val], i) => ({ label: name, value: val, color: acctColors[i % acctColors.length] }));
+
+  // 시장별 비중 (GOLD+SILVER → 기타)
+  const mktMap = { '한국': 0, '미국': 0, '기타': 0, '비상장': 0 };
+  for (const s of pf) {
+    const p = px[s.id];
+    const ev = p ? p.priceKrw * s.qty : (s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty);
+    if (s.market === 'KR') mktMap['한국'] += ev;
+    else if (s.market === 'US') mktMap['미국'] += ev;
+    else if (s.market === 'MANUAL') mktMap['비상장'] += ev;
+    else mktMap['기타'] += ev; // GOLD, SILVER
+  }
+  const mktColors = { '한국': '#3b82f6', '미국': '#10b981', '비상장': '#8b5cf6', '기타': '#f59e0b' };
+  const mktItems = Object.entries(mktMap)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, val]) => ({ label: name, value: val, color: mktColors[name] }));
+
+  el.innerHTML = `
+    <div style="margin-bottom:20px">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;letter-spacing:0.05em">계좌별 비중</div>
+      ${buildPieCSS(acctItems, 130)}
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;letter-spacing:0.05em">시장별 비중</div>
+      ${buildPieCSS(mktItems, 130)}
+    </div>`;
+}
+
 function toggleAcctMore(id, btn, count) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -2030,7 +2123,7 @@ function importData(e) {
 }
 
 // ── 모달 바깥 클릭으로 닫기 ──
-['add-modal','edit-modal','api-modal','year-modal'].forEach(id => {
+['add-modal','edit-modal','api-modal','year-modal','chart-modal'].forEach(id => {
   const el = document.getElementById(id);
   let downOnOverlay = false;
   el.addEventListener('mousedown', e => { downOnOverlay = e.target === el; });
@@ -2039,6 +2132,7 @@ function importData(e) {
       if (id === 'add-modal') closeAddModal();
       else if (id === 'edit-modal') closeEditModal();
       else if (id === 'year-modal') closeYearModal();
+      else if (id === 'chart-modal') closeChartModal();
       else closeApiModal();
     }
   });
@@ -2046,7 +2140,8 @@ function importData(e) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('year-modal').classList.contains('open')) closeYearModal();
+    if (document.getElementById('chart-modal').classList.contains('open')) closeChartModal();
+    else if (document.getElementById('year-modal').classList.contains('open')) closeYearModal();
     else if (document.getElementById('edit-modal').classList.contains('open')) closeEditModal();
     else if (document.getElementById('add-modal').classList.contains('open')) closeAddModal();
     else if (document.getElementById('api-modal').classList.contains('open')) closeApiModal();
