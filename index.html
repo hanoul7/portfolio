@@ -278,7 +278,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 .stock-card.up::before { background: var(--up); }
 .stock-card.down::before { background: var(--down); }
 
-.stock-left { min-width: 0; }
+.stock-left { min-width: 0; overflow: hidden; }
 .stock-name {
   font-size: 14px; font-weight: 600;
   color: var(--text);
@@ -289,7 +289,9 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   font-size: 11px; color: var(--text3);
   font-family: var(--mono);
   display: flex; gap: 8px; align-items: center;
+  white-space: nowrap; overflow: hidden;
 }
+.stock-detail { white-space: nowrap; }
 .badge {
   font-size: 9px; font-weight: 700;
   padding: 2px 5px; border-radius: 4px;
@@ -299,12 +301,13 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 .badge-us { background: var(--up-dim); color: var(--up); }
 .badge-gold { background: var(--gold-dim); color: var(--gold); }
 
-.stock-right { text-align: right; }
+.stock-right { text-align: right; white-space: nowrap; min-width: 0; overflow: hidden; }
 .stock-price {
   font-size: 15px; font-weight: 600;
   font-family: var(--mono);
   color: var(--text);
   margin-bottom: 2px;
+  white-space: nowrap;
 }
 .stock-price.up { color: var(--up); }
 .stock-price.down { color: var(--down); }
@@ -312,6 +315,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   font-size: 12px;
   font-family: var(--mono);
   color: var(--text3);
+  white-space: nowrap; overflow: hidden;
 }
 .stock-pnl.up { color: var(--up); }
 .stock-pnl.down { color: var(--down); }
@@ -327,8 +331,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 }
 .detail-item { text-align: center; }
 .detail-label { font-size: 10px; color: var(--text3); margin-bottom: 2px; }
-.detail-val { font-size: 12px; font-family: var(--mono); color: var(--text2); }
-.detail-gain { font-size: 13px; font-weight: 700; }
+.detail-val { font-size: 12px; font-family: var(--mono); color: var(--text2); white-space: nowrap; overflow: hidden; }
+.detail-gain { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; }
 .detail-gain.up { color: var(--up); }
 .detail-gain.down { color: var(--down); }
 
@@ -1393,6 +1397,23 @@ function renderList() {
         ${stocksHtml}
       </div>`;
   }).join('');
+  requestAnimationFrame(fitCardFonts);
+}
+
+function fitCardFonts() {
+  document.querySelectorAll('.stock-card').forEach(card => {
+    const targets = card.querySelectorAll('.stock-meta, .stock-price, .stock-pnl, .detail-val, .detail-gain');
+    targets.forEach(el => {
+      el.style.fontSize = '';
+      const style = getComputedStyle(el);
+      let size = parseFloat(style.fontSize);
+      const minSize = 8;
+      while (el.scrollWidth > el.clientWidth + 1 && size > minSize) {
+        size -= 0.5;
+        el.style.fontSize = size + 'px';
+      }
+    });
+  });
 }
 
 function renderStockCard(s, totalEval) {
