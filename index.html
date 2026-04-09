@@ -1192,36 +1192,36 @@ async function refreshAll() {
   const goldJobs = jobs.filter(j => j.market === 'GOLD');
   const silverJobs = jobs.filter(j => j.market === 'SILVER');
 
-  // US + GOLD + SILVER + MANUAL 병렬
-  const usGoldPromises = [
+  // US + GOLD + SILVER + MANUAL 병렬 → 완료 즉시 렌더링
+  const applyCache = () => {
+    for (const s of pf) {
+      const p = cache[s.market + ':' + s.ticker];
+      if (p && !px[s.id]) { px[s.id] = p; if (p.name && p.name !== s.ticker) { const hk = /[가-힣]/.test(s.name); const nk = /[가-힣]/.test(p.name); if (!hk || nk) s.name = p.name; } }
+    }
+    render();
+  };
+  const usGoldPromise = Promise.all([
     ...usJobs.map(j => fetchUS(j.ticker).then(p => { cache['US:' + j.ticker] = p; })),
     ...goldJobs.map(j => fetchGold().then(p => { cache['GOLD:' + j.ticker] = p; })),
     ...silverJobs.map(j => fetchSilver().then(p => { cache['SILVER:' + j.ticker] = p; })),
     ...manualJobs.map(j => Promise.resolve()),
-  ];
+  ]).then(applyCache);
 
-  // KR은 2개씩 병렬 (KIS API 초당 제한 대응)
+  // KR은 5개씩 병렬 (KIS API 초당 20회 제한 내) → 배치마다 렌더링
   const krPromise = (async () => {
-    for (let i = 0; i < krJobs.length; i += 2) {
-      const batch = krJobs.slice(i, i + 2);
+    for (let i = 0; i < krJobs.length; i += 5) {
+      const batch = krJobs.slice(i, i + 5);
       const results = await Promise.all(batch.map(j => fetchKR(j.ticker, tok)));
       batch.forEach((j, idx) => { cache['KR:' + j.ticker] = results[idx]; });
+      applyCache();
     }
   })();
 
-  await Promise.all([...usGoldPromises, krPromise]);
+  await Promise.all([usGoldPromise, krPromise]);
 
   for (const s of pf) {
     const p = cache[s.market + ':' + s.ticker];
-    if (p) {
-      px[s.id] = p;
-      if (p.name && p.name !== s.ticker) {
-        const hasKorean = /[가-힣]/.test(s.name);
-        const newHasKorean = /[가-힣]/.test(p.name);
-        if (!hasKorean || newHasKorean) s.name = p.name;
-      }
-      ok++;
-    } else fail++;
+    if (p) { px[s.id] = p; ok++; } else fail++;
   }
   save();
   refreshing = false;
