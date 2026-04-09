@@ -140,19 +140,36 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   font-family: var(--mono);
 }
 
-/* 환율 바 */
-.info-bar {
-  display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
-  font-size: 11px; color: var(--text3);
+/* 시장 정보 그리드 */
+.market-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.market-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  font-family: var(--mono);
+}
+.market-label { font-size: 10px; color: var(--text3); letter-spacing: 0.05em; margin-bottom: 3px; }
+.market-val { font-size: 15px; font-weight: 600; color: var(--text); }
+.market-chg { font-size: 11px; margin-top: 1px; }
+.market-chg.up { color: var(--up); }
+.market-chg.down { color: var(--down); }
+.status-bar {
+  display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px;
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  margin-bottom: 18px;
-  font-family: var(--mono);
+  margin-bottom: 10px;
+  font-size: 12px; font-family: var(--mono);
 }
-.info-item { display: flex; gap: 6px; }
-.info-val { color: var(--text2); }
+.status-bar .st-label { color: var(--text3); }
+.status-bar .st-val { color: var(--text2); font-weight: 600; }
 
 /* 섹션 헤더 */
 .section-hd {
@@ -258,7 +275,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 /* PC: 2단 레이아웃 */
 @media (min-width: 768px) {
   main { display: grid; grid-template-columns: 400px 1fr; gap: 0 24px; align-items: start; }
-  .summary-row, .info-bar { grid-column: 1 / 2; }
+  .summary-row, .status-bar, .market-grid { grid-column: 1 / 2; }
   .section-hd, .stock-list, .add-btn { grid-column: 2 / 3; }
   .section-hd { grid-row: 1; }
   .stock-list { grid-row: 2 / 10; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-content: start; }
@@ -471,11 +488,43 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     </div>
   </div>
 
-  <!-- 환율 바 -->
-  <div class="info-bar">
-    <div class="info-item"><span>USD/KRW</span><span class="info-val" id="rate-val">—</span></div>
-    <div class="info-item"><span>갱신</span><span class="info-val" id="update-time">—</span></div>
-    <div class="info-item" style="margin-left:auto"><span id="status-txt" style="color:var(--text3)">API 키를 먼저 설정해주세요</span></div>
+  <!-- 상태 바 -->
+  <div class="status-bar">
+    <span class="st-label">갱신 <span class="st-val" id="update-time">—</span></span>
+    <span id="status-txt" style="color:var(--text3);font-size:11px">API 키를 설정해주세요</span>
+  </div>
+
+  <!-- 시장 지표 -->
+  <div class="market-grid">
+    <div class="market-card">
+      <div class="market-label">USD/KRW</div>
+      <div class="market-val" id="rate-val">—</div>
+    </div>
+    <div class="market-card">
+      <div class="market-label">KOSPI</div>
+      <div class="market-val" id="idx-kospi">—</div>
+      <div class="market-chg" id="idx-kospi-chg"></div>
+    </div>
+    <div class="market-card">
+      <div class="market-label">DOW JONES</div>
+      <div class="market-val" id="idx-dow">—</div>
+      <div class="market-chg" id="idx-dow-chg"></div>
+    </div>
+    <div class="market-card">
+      <div class="market-label">WTI 유가</div>
+      <div class="market-val" id="idx-oil">—</div>
+      <div class="market-chg" id="idx-oil-chg"></div>
+    </div>
+    <div class="market-card">
+      <div class="market-label">BITCOIN</div>
+      <div class="market-val" id="idx-btc">—</div>
+      <div class="market-chg" id="idx-btc-chg"></div>
+    </div>
+    <div class="market-card">
+      <div class="market-label">GOLD</div>
+      <div class="market-val" id="idx-gold">—</div>
+      <div class="market-chg" id="idx-gold-chg"></div>
+    </div>
   </div>
 
   <!-- 종목 리스트 -->
@@ -628,6 +677,7 @@ async function init() {
   if (appSecret) document.getElementById('api-secret').value = appSecret;
   document.getElementById('api-premium').value = goldPremium;
   render();
+  fetchRate().then(() => fetchIndices());
   if (appKey && appSecret) {
     setSt('loading', token ? '저장된 토큰 사용' : '토큰 발급 중...');
     const tok = await getToken();
@@ -799,12 +849,39 @@ async function fetchRate() {
   } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
 }
 
+// ── 시장 지표 조회 ──
+async function fetchIndices() {
+  const indices = [
+    { symbol: '^KS11', elVal: 'idx-kospi', elChg: 'idx-kospi-chg', fmt: v => v.toFixed(2) },
+    { symbol: '^DJI', elVal: 'idx-dow', elChg: 'idx-dow-chg', fmt: v => fmt(Math.round(v)) },
+    { symbol: 'CL=F', elVal: 'idx-oil', elChg: 'idx-oil-chg', fmt: v => '$' + v.toFixed(2) },
+    { symbol: 'BTC-USD', elVal: 'idx-btc', elChg: 'idx-btc-chg', fmt: v => '$' + fmt(Math.round(v)) },
+    { symbol: 'GC=F', elVal: 'idx-gold', elChg: 'idx-gold-chg', fmt: v => '$' + v.toFixed(2) },
+  ];
+  await Promise.allSettled(indices.map(async idx => {
+    try {
+      const r = await fetch(`/api/quote?symbol=${encodeURIComponent(idx.symbol)}&market=US`);
+      const d = await r.json();
+      if (d.price > 0) {
+        document.getElementById(idx.elVal).textContent = idx.fmt(d.price);
+        if (d.prevClose > 0) {
+          const chg = ((d.price - d.prevClose) / d.prevClose) * 100;
+          const el = document.getElementById(idx.elChg);
+          el.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+          el.className = 'market-chg ' + (chg >= 0 ? 'up' : 'down');
+        }
+      }
+    } catch(e) {}
+  }));
+}
+
 // ── 전체 새로고침 ──
 async function refreshAll() {
   if (refreshing || !appKey || !appSecret) return;
   refreshing = true;
   setSt('loading', '시세 갱신 중...');
   await fetchRate();
+  fetchIndices();
   const tok = await getToken();
   if (!tok) {
     setSt('error', 'API 키 오류 — 설정을 확인해주세요');
