@@ -866,6 +866,26 @@ async function fetchGold() {
       return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: chg, name: '금현물(XAU)', estimated: false };
     }
   } catch(e) { console.error('[GOLD] fetch error:', e); }
+
+  // ── 테스트: KIS API로 ACE KRX금현물 ETF(411060) 조회 ──
+  if (appKey && appSecret) {
+    try {
+      const tok = await getToken();
+      if (tok) {
+        const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=411060', {
+          headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'FHKST01010100', 'custtype': 'P' }
+        });
+        const d = await r.json();
+        const o = d?.output;
+        const etfPrice = parseInt(o?.stck_prpr || '0');
+        const etfPrev = parseInt(o?.stck_sdpr || '0');
+        const xauPerGram = xauUsd > 0 && usdkrw > 0 ? Math.round(xauUsd * usdkrw / 31.1034768) : 0;
+        console.log('[TEST 411060] ETF price:', etfPrice, '| prev:', etfPrev, '| XAU환산:', xauPerGram, '| 차이:', etfPrice - xauPerGram, '| rt_cd:', d?.rt_cd, '| msg:', d?.msg1);
+        console.log('[TEST 411060] full output:', JSON.stringify(o).slice(0, 500));
+      }
+    } catch(e) { console.error('[TEST 411060] error:', e); }
+  }
+
   return null;
 }
 
