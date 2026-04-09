@@ -1042,86 +1042,144 @@ function renderList() {
     if (p) totalEval += p.priceKrw * s.qty;
     else totalEval += (s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty);
   }
-  el.innerHTML = pf.map(s => {
-    const p = px[s.id];
-    const cost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
-    const badge = s.market === 'GOLD'
-      ? '<span class="badge badge-gold">GOLD</span>'
-      : s.market === 'KR'
-      ? '<span class="badge badge-kr">KR</span>'
-      : '<span class="badge badge-us">US</span>';
-    const unit = s.market === 'GOLD' ? 'g' : '주';
 
-    let priceHtml = '<div class="loading-row">조회 중...</div>';
-    let cardCls = '';
-    let cardStyle = '';
-    let pnlHtml = '';
-    let detailHtml = '';
+  // 계좌별 그룹핑
+  const groups = {};
+  for (const s of pf) {
+    const key = s.acct || '';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  }
+  const groupKeys = Object.keys(groups).filter(k => k !== '').sort();
+  if (groups['']) groupKeys.push('');
 
-    if (p) {
-      const ev = p.priceKrw * s.qty;
-      const gain = ev - cost;
-      const gainPct = (gain / cost) * 100;
-      const chgCls = p.changeRatio >= 0 ? 'up' : 'down';
-      const gainCls = gain >= 0 ? 'up' : 'down';
-      cardCls = gainCls;
-      // 손익 퍼센트에 따른 배경 채도 (10단계, ±50%이상→최대)
-      const intensity = Math.min(Math.abs(gainPct) / 50, 1);
-      const step = Math.round(intensity * 10) / 10;
-      const alpha = (0.03 + step * 0.22).toFixed(2);
-      const bgColor = gain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
-      const borderColor = gain >= 0 ? `rgba(16,185,129,${(step * 0.35).toFixed(2)})` : `rgba(239,68,68,${(step * 0.35).toFixed(2)})`;
-      cardStyle = `background:${bgColor};border-color:${borderColor};`;
+  // 계좌별 집계
+  const acctStats = {};
+  for (const key of groupKeys) {
+    let cost = 0, ev = 0;
+    for (const s of groups[key]) {
+      const sCost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
+      cost += sCost;
+      const p = px[s.id];
+      ev += p ? p.priceKrw * s.qty : sCost;
+    }
+    acctStats[key] = { cost, eval: ev };
+  }
 
-      const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>` : '';
-      const ms = (p.marketState || '').toUpperCase();
-      const msLabel = ms.includes('PRE') ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
-        : ms.includes('POST') ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
-        : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
-      priceHtml = `
-        <div class="stock-right">
-          <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}${msLabel}</div>
-          <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
-        </div>`;
+  const hasMultiAcct = groupKeys.length > 1 || (groupKeys.length === 1 && groupKeys[0] !== '');
 
-      const weight = totalEval > 0 ? (ev / totalEval * 100) : 0;
-      pnlHtml = `
-        <div class="stock-detail">
-          <div class="detail-item">
-            <div class="detail-label">평가금액</div>
-            <div class="detail-val">${fmt(ev)}원</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">손익</div>
-            <div class="detail-val detail-gain ${gainCls}">${fmtSign(gain)}원 (${fmtPct(gainPct)})</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">비중</div>
-            <div class="detail-val">${weight.toFixed(1)}%</div>
-            <div style="margin-top:4px;height:3px;border-radius:2px;background:var(--border)"><div style="height:100%;border-radius:2px;background:var(--accent);width:${Math.min(weight,100)}%"></div></div>
-          </div>
-        </div>`;
-    } else if (!appKey) {
-      priceHtml = '<div class="stock-right"><div class="stock-price" style="color:var(--text3)">—</div></div>';
+  el.innerHTML = groupKeys.map(key => {
+    const stocks = groups[key];
+    const stocksHtml = stocks.map(s => renderStockCard(s, totalEval)).join('');
+
+    if (!hasMultiAcct) return stocksHtml;
+
+    const stat = acctStats[key];
+    const g = stat.eval - stat.cost;
+    const pct = stat.cost > 0 ? (g / stat.cost) * 100 : 0;
+    const cls = g >= 0 ? 'up' : 'down';
+    const ya = yearAccounts.find(a => a.name === key);
+    let yearHtml = '';
+    if (ya) {
+      const curPnl = stat.eval - stat.cost;
+      const yg = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0);
+      const yCls = yg >= 0 ? 'up' : 'down';
+      yearHtml = `<div style="font-size:11px;color:var(--text3)">금년 <span class="${yCls}" style="font-weight:600">${fmtSign(Math.round(yg))}원</span></div>`;
     }
 
-    const acctHtml = s.acct ? `<span style="color:var(--accent);font-size:10px;font-weight:600">${s.acct}</span>` : '';
-
     return `
-      <div class="stock-card ${cardCls}" onclick="openEditModal('${s.id}')" style="cursor:pointer;${cardStyle}">
-        <button class="del-btn" onclick="event.stopPropagation();delStock('${s.id}')">✕</button>
-        <div class="stock-left">
-          <div class="stock-name">${s.name} ${badge} ${acctHtml}</div>
-          <div class="stock-meta">
-            <span>${s.ticker}</span>
-            <span>평단 ${s.market === 'US' ? '$' + s.avg.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(s.avg) + '원'}</span>
-            <span>${s.qty}${unit}</span>
+      <div style="border:1px solid var(--border);border-radius:12px;padding:12px 10px;margin-bottom:14px;background:var(--card)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:0 2px">
+          <div style="font-size:13px;font-weight:700;color:var(--text1)">${key || '미지정'}</div>
+          <div style="text-align:right">
+            <div style="font-size:12px">
+              <span style="color:var(--text3)">손익</span>
+              <span class="${cls}" style="font-weight:700;margin-left:4px">${fmtSign(Math.round(g))}원</span>
+              <span style="color:var(--text3);font-size:10px;margin-left:2px">(${fmtPct(pct)})</span>
+            </div>
+            ${yearHtml}
           </div>
         </div>
-        ${priceHtml}
-        ${pnlHtml}
+        ${stocksHtml}
       </div>`;
   }).join('');
+}
+
+function renderStockCard(s, totalEval) {
+  const p = px[s.id];
+  const cost = s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
+  const badge = s.market === 'GOLD'
+    ? '<span class="badge badge-gold">GOLD</span>'
+    : s.market === 'KR'
+    ? '<span class="badge badge-kr">KR</span>'
+    : '<span class="badge badge-us">US</span>';
+  const unit = s.market === 'GOLD' ? 'g' : '주';
+
+  let priceHtml = '<div class="loading-row">조회 중...</div>';
+  let cardCls = '';
+  let cardStyle = '';
+  let pnlHtml = '';
+
+  if (p) {
+    const ev = p.priceKrw * s.qty;
+    const gain = ev - cost;
+    const gainPct = (gain / cost) * 100;
+    const chgCls = p.changeRatio >= 0 ? 'up' : 'down';
+    const gainCls = gain >= 0 ? 'up' : 'down';
+    cardCls = gainCls;
+    const intensity = Math.min(Math.abs(gainPct) / 50, 1);
+    const step = Math.round(intensity * 10) / 10;
+    const alpha = (0.03 + step * 0.22).toFixed(2);
+    const bgColor = gain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
+    const borderColor = gain >= 0 ? `rgba(16,185,129,${(step * 0.35).toFixed(2)})` : `rgba(239,68,68,${(step * 0.35).toFixed(2)})`;
+    cardStyle = `background:${bgColor};border-color:${borderColor};`;
+
+    const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>` : '';
+    const ms = (p.marketState || '').toUpperCase();
+    const msLabel = ms.includes('PRE') ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
+      : ms.includes('POST') ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
+      : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
+    priceHtml = `
+      <div class="stock-right">
+        <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}${msLabel}</div>
+        <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
+      </div>`;
+
+    const weight = totalEval > 0 ? (ev / totalEval * 100) : 0;
+    pnlHtml = `
+      <div class="stock-detail">
+        <div class="detail-item">
+          <div class="detail-label">평가금액</div>
+          <div class="detail-val">${fmt(ev)}원</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">손익</div>
+          <div class="detail-val detail-gain ${gainCls}">${fmtSign(gain)}원 (${fmtPct(gainPct)})</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">비중</div>
+          <div class="detail-val">${weight.toFixed(1)}%</div>
+          <div style="margin-top:4px;height:3px;border-radius:2px;background:var(--border)"><div style="height:100%;border-radius:2px;background:var(--accent);width:${Math.min(weight,100)}%"></div></div>
+        </div>
+      </div>`;
+  } else if (!appKey) {
+    priceHtml = '<div class="stock-right"><div class="stock-price" style="color:var(--text3)">—</div></div>';
+  }
+
+  return `
+    <div class="stock-card ${cardCls}" onclick="openEditModal('${s.id}')" style="cursor:pointer;${cardStyle}">
+      <button class="del-btn" onclick="event.stopPropagation();delStock('${s.id}')">✕</button>
+      <div class="stock-left">
+        <div class="stock-name">${s.name} ${badge}</div>
+        <div class="stock-meta">
+          <span>${s.ticker}</span>
+          <span>평단 ${s.market === 'US' ? '$' + s.avg.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(s.avg) + '원'}</span>
+          <span>${s.qty}${unit}</span>
+        </div>
+      </div>
+      ${priceHtml}
+      ${pnlHtml}
+    </div>`;
 }
 
 function renderSummary() {
@@ -1170,11 +1228,9 @@ function renderSummary() {
     todayCard.style.background = todayPnl >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
   }
 
-  // 계좌별 요약 (총손익 + 금년 손익)
+  // 전체 금년 손익
   const area = document.getElementById('account-summary-area');
   if (area) {
-    let html = '';
-    // 계좌별 총손익 집계
     const acctMap = {};
     for (const s of pf) {
       const key = s.acct || '(미지정)';
@@ -1184,35 +1240,11 @@ function renderSummary() {
       const p = px[s.id];
       acctMap[key].eval += p ? p.priceKrw * s.qty : sCost;
     }
-    const acctKeys = Object.keys(acctMap).filter(k => k !== '(미지정)').sort();
-    if (acctMap['(미지정)']) acctKeys.push('(미지정)');
-
-    if (acctKeys.length > 1 && hasP) {
-      // 계좌별 총손익 카드
-      let cards = '';
-      for (const key of acctKeys) {
-        const a = acctMap[key];
-        const g = a.eval - a.cost;
-        const pct = a.cost > 0 ? (g / a.cost) * 100 : 0;
-        const cls = g >= 0 ? 'up' : 'down';
-        const alpha = (0.03 + Math.min(Math.abs(pct) / 50, 1) * 0.12).toFixed(2);
-        const bg = g >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
-        cards += `<div class="card" style="flex:1;min-width:0;transition:background 0.3s;background:${bg}">
-          <div class="card-label" style="font-size:11px">${key}</div>
-          <div class="card-value sm ${cls}" style="font-size:14px">${fmtSign(Math.round(g))}원</div>
-          <div class="card-sub" style="font-size:10px">평가 ${fmt(Math.round(a.eval))}원 · ${fmtPct(pct)}</div>
-        </div>`;
-      }
-      html += `<div class="summary-row" style="margin-bottom:10px">${cards}</div>`;
-    }
-
-    // 금년 손익 (전체 합산 + 계좌별)
-    // 계산: 금년손익 = (현재 평가손익 - 작년말 손익) + 실현손익
+    let html = '';
     const totalCurPnl = Object.values(acctMap).reduce((s, a) => s + (a.eval - a.cost), 0);
     const totalYearEndPnl = yearAccounts.reduce((s, a) => s + (a.yearEndPnl || 0), 0);
     const totalRealized = yearAccounts.reduce((s, a) => s + (a.realized || 0), 0);
-    const hasYearAccounts = yearAccounts.length > 0;
-    if (hasYearAccounts && hasP) {
+    if (yearAccounts.length > 0 && hasP) {
       const yearGain = (totalCurPnl - totalYearEndPnl) + totalRealized;
       const cls = yearGain >= 0 ? 'up' : 'down';
       const yearPct = totalEval > 0 ? Math.abs(yearGain / totalEval) * 100 : 0;
@@ -1220,38 +1252,15 @@ function renderSummary() {
       const bg = yearGain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
       let subParts = [];
       if (totalRealized !== 0) subParts.push('실현 ' + fmtSign(totalRealized) + '원');
-      // 전체 금년 손익 카드
-      html += `<div class="summary-row" style="margin-bottom:6px">
+      html = `<div class="summary-row" style="margin-bottom:14px">
         <div class="card summary-wide" style="transition:background 0.3s;background:${bg}">
           <div class="card-label">금년 손익</div>
           <div class="card-value sm ${cls}">${fmtSign(Math.round(yearGain))}원</div>
           <div class="card-sub">${subParts.join(' · ')}</div>
         </div>
       </div>`;
-
-      // 계좌별 금년 손익
-      if (yearAccounts.length > 1) {
-        let yCards = '';
-        for (const ya of yearAccounts) {
-          const a = acctMap[ya.name];
-          const curPnl = a ? (a.eval - a.cost) : 0;
-          const yg = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0);
-          const yCls = yg >= 0 ? 'up' : 'down';
-          const aEval = a ? a.eval : 0;
-          const yAlpha = (0.03 + Math.min(Math.abs(aEval > 0 ? yg / aEval * 100 : 0) / 50, 1) * 0.12).toFixed(2);
-          const yBg = yg >= 0 ? `rgba(16,185,129,${yAlpha})` : `rgba(239,68,68,${yAlpha})`;
-          let ySub = [];
-          if (ya.realized) ySub.push('실현 ' + fmtSign(ya.realized) + '원');
-          yCards += `<div class="card" style="flex:1;min-width:0;transition:background 0.3s;background:${yBg}">
-            <div class="card-label" style="font-size:11px">${ya.name} 금년</div>
-            <div class="card-value sm ${yCls}" style="font-size:14px">${fmtSign(Math.round(yg))}원</div>
-            <div class="card-sub" style="font-size:10px">${ySub.join(' · ')}</div>
-          </div>`;
-        }
-        if (yCards) html += `<div class="summary-row" style="margin-bottom:10px">${yCards}</div>`;
-      }
     } else if (yearAccounts.length === 0) {
-      html += `<div class="summary-row" style="margin-bottom:18px">
+      html = `<div class="summary-row" style="margin-bottom:14px">
         <div class="card summary-wide">
           <div class="card-label">금년 손익</div>
           <div class="card-value sm">—</div>
@@ -1259,7 +1268,6 @@ function renderSummary() {
         </div>
       </div>`;
     }
-    if (html) html = '<div style="margin-bottom:12px">' + html + '</div>';
     area.innerHTML = html;
   }
 }
