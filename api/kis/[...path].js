@@ -5,12 +5,14 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // /api/kis/oauth2/tokenP → oauth2/tokenP
-  // /api/kis/uapi/domestic-stock/... → uapi/domestic-stock/...
-  const url = req.url.replace(/^\/api\/kis\//, '');
-  const target = `https://openapi.koreainvestment.com:9443/${url}`;
+  // catch-all: req.query.path = ['uapi','domestic-stock','v1',...]
+  const pathSegments = req.query.path || [];
+  const queryString = Object.entries(req.query)
+    .filter(([k]) => k !== 'path')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  const target = `https://openapi.koreainvestment.com:9443/${pathSegments.join('/')}${queryString ? '?' + queryString : ''}`;
 
-  // 클라이언트 헤더에서 KIS에 필요한 것들만 전달
   const fwdHeaders = {};
   const passKeys = ['content-type', 'authorization', 'appkey', 'appsecret', 'tr_id', 'custtype'];
   for (const k of passKeys) {
@@ -18,10 +20,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const opts = {
-      method: req.method,
-      headers: fwdHeaders,
-    };
+    const opts = { method: req.method, headers: fwdHeaders };
     if (req.method === 'POST' && req.body) {
       opts.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     }

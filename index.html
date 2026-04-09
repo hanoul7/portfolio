@@ -199,9 +199,10 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 .acct-total-pnl {
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--text3);
   margin-top: 2px;
 }
+.acct-total-pnl .up { color: var(--up); }
+.acct-total-pnl .down { color: var(--down); }
 
 /* 시장 정보 그리드 */
 .market-grid {
@@ -548,15 +549,11 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
   <!-- 요약 카드 -->
   <div id="account-summary-area"></div>
-  <div class="summary-row" style="margin-bottom:6px">
-    <div class="card summary-wide" id="eval-card">
-      <div style="display:flex;align-items:baseline;justify-content:space-between">
-        <div class="card-label" style="margin-bottom:0">총 평가</div>
-        <div class="card-value sm" id="s-eval" style="font-size:20px">—</div>
-      </div>
+  <div class="summary-row" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:10px">
+    <div class="card" id="eval-card">
+      <div class="card-label">총 평가</div>
+      <div class="card-value sm" id="s-eval">—</div>
     </div>
-  </div>
-  <div class="summary-row" style="margin-bottom:10px">
     <div class="card" id="pnl-card" style="transition:background 0.3s">
       <div class="card-label">총 손익</div>
       <div class="card-value sm" id="s-pnl">—</div>
@@ -781,6 +778,14 @@ if (false) {
 // ── 초기화 ──
 async function init() {
   try { pf = JSON.parse(localStorage.getItem('pf_kis') || '[]'); } catch(e) { pf = []; }
+  // 기존 은현물이 MANUAL로 저장된 경우 SILVER로 보정
+  let pfFixed = false;
+  for (const s of pf) {
+    if (s.market === 'MANUAL' && /은현물|XAG|SILVER/i.test(s.name || s.ticker)) {
+      s.market = 'SILVER'; s.ticker = 'SILVER'; pfFixed = true;
+    }
+  }
+  if (pfFixed) save();
   appKey = localStorage.getItem('kis_key') || '';
   appSecret = localStorage.getItem('kis_secret') || '';
   loadToken();
@@ -1329,7 +1334,7 @@ function renderList() {
       yearHtml = `<div style="text-align:right;white-space:nowrap">
         <div style="font-size:10px;color:var(--text3);margin-bottom:1px">금년 손익</div>
         <div class="acct-year-pnl ${yCls}">${fmtSign(Math.round(yg))}<span style="font-size:12px">원</span></div>
-        <div class="${yCls}" style="font-size:10px;font-family:var(--mono);margin-top:1px">(${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%)</div>
+        <div style="font-size:10px;font-family:var(--mono);margin-top:1px;color:var(--${yCls === 'up' ? 'up' : 'down'})">(${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%)</div>
       </div>`;
     }
 
@@ -1352,7 +1357,7 @@ function renderList() {
               <span style="font-size:10px;font-family:var(--mono);color:var(--text3);white-space:nowrap">${weight.toFixed(1)}%</span>
             </div>
             <div class="acct-total-pnl" style="white-space:nowrap">
-              손익 <span class="${cls}" style="font-weight:600">${fmtSign(Math.round(g))}</span><span class="${cls}" style="font-size:10px">원</span>
+              <span style="color:var(--text3)">손익</span> <span class="${cls}" style="font-weight:600">${fmtSign(Math.round(g))}원</span>
               <span class="${cls}" style="margin-left:2px">(${fmtPct(pct)})</span>
             </div>
           </div>
@@ -1479,7 +1484,7 @@ function renderSummary() {
   const pe = document.getElementById('s-pnl');
   pe.textContent = hasP ? fmtSign(gain) + '원' : '—';
   pe.className = 'card-value sm ' + (gain >= 0 ? 'up' : 'down');
-  document.getElementById('s-pct').textContent = hasP ? fmtPct(gainPct) : '';
+  document.getElementById('s-pct').textContent = hasP ? `(${fmtPct(gainPct)})` : '';
   const pnlCard = document.getElementById('pnl-card');
   if (pnlCard && hasP) {
     const a = (0.03 + Math.min(Math.abs(gainPct) / 50, 1) * 0.15).toFixed(2);
@@ -1563,9 +1568,16 @@ function renderSummary() {
 
       html = `<div class="summary-row" style="margin-bottom:6px">
         <div class="year-card-hero summary-wide" style="transition:background 0.3s,border-color 0.3s;background:${bg};border-color:${borderClr}">
-          <div class="card-label" style="color:${yearGain >= 0 ? 'var(--up)' : 'var(--down)'}">금년 손익</div>
-          <div class="card-value lg ${cls}">${fmtSign(Math.round(yearGain))}원</div>
-          <div class="card-sub" style="font-size:12px">${subParts.join(' · ')}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div class="card-label" style="color:${yearGain >= 0 ? 'var(--up)' : 'var(--down)'}">금년 손익</div>
+              <div class="card-value lg ${cls}">${fmtSign(Math.round(yearGain))}원</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:11px;color:var(--text3)">수익률</div>
+              <div class="${cls}" style="font-size:20px;font-weight:700;font-family:var(--mono)">${subParts.join(' · ')}</div>
+            </div>
+          </div>
         </div>
       </div>`;
       if (totalFee > 0 || totalTax > 0) {
