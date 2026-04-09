@@ -724,9 +724,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">금년 손익 계좌</div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div style="font-size:12px;color:var(--text3)">계좌별 작년말 손익액과 금년 실현 수익금을 입력하세요 (손익액: 평가손익)</div>
-      <button type="button" onclick="addYearAccount()" style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text2);cursor:pointer;white-space:nowrap;margin-left:8px">+ 추가</button>
+    <div style="margin-bottom:12px">
+      <div style="font-size:12px;color:var(--text3)">종목의 계좌명이 자동 반영됩니다. 작년말 손익액과 실현 수익금을 입력하세요.</div>
     </div>
     <div id="year-accounts-list"></div>
     <div style="display:flex;gap:8px;margin-top:16px">
@@ -1157,7 +1156,7 @@ function renderList() {
       yearHtml = `<div style="text-align:right;white-space:nowrap">
         <div style="font-size:10px;color:var(--text3);margin-bottom:1px">금년 손익</div>
         <div class="acct-year-pnl ${yCls}">${fmtSign(Math.round(yg))}<span style="font-size:12px">원</span></div>
-        <div style="font-size:10px;color:var(--text3);margin-top:1px">${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%${ya.realized ? ' · 실현 ' + fmtSign(ya.realized) : ''}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:1px">${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%</div>
       </div>`;
     }
 
@@ -1342,7 +1341,6 @@ function renderSummary() {
       const bg = yearGain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
       const borderClr = yearGain >= 0 ? `rgba(16,185,129,${(0.2 + intensity * 0.3).toFixed(2)})` : `rgba(239,68,68,${(0.2 + intensity * 0.3).toFixed(2)})`;
       let subParts = [`${yearPctVal >= 0 ? '+' : ''}${yearPctVal.toFixed(2)}%`];
-      if (totalRealized !== 0) subParts.push('실현 ' + fmtSign(totalRealized) + '원');
       html = `<div class="summary-row" style="margin-bottom:14px">
         <div class="year-card-hero summary-wide" style="transition:background 0.3s,border-color 0.3s;background:${bg};border-color:${borderClr}">
           <div class="card-label" style="color:${yearGain >= 0 ? 'var(--up)' : 'var(--down)'}">금년 손익</div>
@@ -1459,6 +1457,7 @@ async function addStock() {
   const id = Date.now().toString();
   pf.push({ id, market: mkt, ticker: tick, name, avg, qty, acct, ...(mkt === 'US' ? { avgFx } : {}) });
   save();
+  syncYearAccounts();
   closeAddModal();
   render();
   if (appKey && appSecret) {
@@ -1485,6 +1484,7 @@ function delStock(id) {
   pf = pf.filter(s => s.id !== id);
   delete px[id];
   save();
+  syncYearAccounts();
   render();
 }
 
@@ -1545,6 +1545,7 @@ function saveEdit() {
   if (s.market === 'US') s.avgFx = avgFx;
   s.acct = acct;
   save();
+  syncYearAccounts();
   closeEditModal();
   render();
 }
@@ -1555,62 +1556,44 @@ function openYearModal() { document.getElementById('year-modal').classList.add('
 function closeYearModal() { document.getElementById('year-modal').classList.remove('open'); }
 
 // ── 금년 손익 계좌 관리 ──
+function syncYearAccounts() {
+  // 포트폴리오 종목의 계좌명 목록 추출
+  const acctNames = [...new Set(pf.map(s => s.acct).filter(Boolean))].sort();
+  // 기존 yearAccounts에서 값 보존, 새 계좌 추가, 없는 계좌 제거
+  const oldMap = {};
+  for (const ya of yearAccounts) oldMap[ya.name] = ya;
+  yearAccounts = acctNames.map(name => oldMap[name] || { name, yearEndPnl: 0, realized: 0 });
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+}
+
 function renderYearAccounts() {
+  syncYearAccounts();
   const list = document.getElementById('year-accounts-list');
   if (!list) return;
+  if (yearAccounts.length === 0) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px 0">종목 추가 시 계좌명을 입력하면 자동으로 나타납니다</div>';
+    return;
+  }
   list.innerHTML = yearAccounts.map((acc, i) => `
-    <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
-      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
-        <div>
-          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">계좌명</div>
-          <input type="text" value="${acc.name || ''}" placeholder="예: 키움, 삼성증권" data-ya="${i}" data-field="name" onchange="updateYearAccount(this)" style="width:100%;box-sizing:border-box;font-size:12px;font-weight:600;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
-        </div>
-        <div style="display:flex;gap:6px">
-          <div style="flex:1">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:2px">작년말 손익액</div>
-            <input type="number" value="${acc.yearEndPnl || ''}" placeholder="0" data-ya="${i}" data-field="yearEndPnl" onchange="updateYearAccount(this)" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
-          </div>
-          <div style="flex:1">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:2px">실현 수익금</div>
-            <input type="number" value="${acc.realized || ''}" placeholder="0" data-ya="${i}" data-field="realized" onchange="updateYearAccount(this)" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
-          </div>
-        </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+      <div style="font-size:13px;font-weight:700;color:var(--text1);min-width:70px">${acc.name}</div>
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">작년말 손익액</div>
+        <input type="number" value="${acc.yearEndPnl || ''}" placeholder="0" data-ya="${i}" data-field="yearEndPnl" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
       </div>
-      <button type="button" onclick="removeYearAccount(${i})" style="font-size:16px;padding:2px 6px;border:none;background:none;color:var(--text3);cursor:pointer;margin-top:2px" title="삭제">✕</button>
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">금년 실현 수익금</div>
+        <input type="number" value="${acc.realized || ''}" placeholder="0" data-ya="${i}" data-field="realized" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+      </div>
     </div>
   `).join('');
-  if (yearAccounts.length === 0) {
-    list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px 0">계좌를 추가하세요</div>';
-  }
-}
-
-function addYearAccount() {
-  yearAccounts.push({ name: '', yearEndPnl: 0, realized: 0 });
-  renderYearAccounts();
-}
-
-function removeYearAccount(idx) {
-  yearAccounts.splice(idx, 1);
-  saveYearAccounts();
-  renderYearAccounts();
-  render();
-}
-
-function updateYearAccount(el) {
-  const i = parseInt(el.dataset.ya);
-  const field = el.dataset.field;
-  if (field === 'name') yearAccounts[i].name = el.value;
-  else yearAccounts[i][field] = parseFloat(el.value) || 0;
 }
 
 function saveYearAccounts() {
-  // DOM에서 최신 값 읽기
   document.querySelectorAll('[data-ya]').forEach(el => {
     const i = parseInt(el.dataset.ya);
-    const field = el.dataset.field;
     if (!yearAccounts[i]) return;
-    if (field === 'name') yearAccounts[i].name = el.value;
-    else yearAccounts[i][field] = parseFloat(el.value) || 0;
+    yearAccounts[i][el.dataset.field] = parseFloat(el.value) || 0;
   });
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
 }
