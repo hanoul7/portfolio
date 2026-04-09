@@ -2210,11 +2210,18 @@ async function loadDailyChart() {
     return;
   }
 
-  // 금년 초 평가액 기준 일별 손익
+  // 금년 손익 = (현재 평가액 변동) + 실현수익 보정
+  // 차트 기준: 금년 첫 거래일 평가액 대비 변동 + 실현수익 합산
   const baseVal = dateMap[dates[0]];
+  const totalRealized = yearAccounts.reduce((s, a) => s + (a.realized || 0), 0);
+  // 총 매입원가
+  let totalCost = 0;
+  for (const s of pf) totalCost += s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
+  const totalYearEndPnl = yearAccounts.reduce((s, a) => s + (a.yearEndPnl || 0), 0);
+
   const dataPoints = dates.map(date => ({
     date,
-    value: dateMap[date] - baseVal
+    value: (dateMap[date] - totalCost - totalYearEndPnl) + totalRealized
   }));
 
   chartEl.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>` + buildLineChart(dataPoints, 200);

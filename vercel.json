@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/kis/:path*",
-      "destination": "/api/kis-proxy?kisPath=:path*"
+      "destination": "https://openapi.koreainvestment.com:9443/:path*"
     }
   ],
   "headers": [
