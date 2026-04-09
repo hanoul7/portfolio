@@ -306,6 +306,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   color: var(--text);
   margin-bottom: 2px;
 }
+.stock-price.up { color: var(--up); }
+.stock-price.down { color: var(--down); }
 .stock-pnl {
   font-size: 12px;
   font-family: var(--mono);
@@ -1412,7 +1414,7 @@ function renderStockCard(s, totalEval) {
       : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
     priceHtml = `
       <div class="stock-right">
-        <div class="stock-price">${fmt(p.priceKrw)}원${estLabel}${msLabel}</div>
+        <div class="stock-price ${chgCls}">${fmt(p.priceKrw)}원${estLabel}${msLabel}</div>
         <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
       </div>`;
 
