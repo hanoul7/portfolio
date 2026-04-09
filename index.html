@@ -1084,18 +1084,41 @@ async function refreshAll() {
     return;
   }
   let ok = 0, fail = 0;
-  const cache = {};
+  // 중복 제거 후 시장별 분류
+  const uniqueKeys = {};
   for (const s of pf) {
-    const cacheKey = s.market + ':' + s.ticker;
-    if (!(cacheKey in cache)) {
-      if (s.market === 'GOLD') cache[cacheKey] = await fetchGold();
-      else if (s.market === 'KR') cache[cacheKey] = await fetchKR(s.ticker, tok);
-      else cache[cacheKey] = await fetchUS(s.ticker);
+    const ck = s.market + ':' + s.ticker;
+    if (!uniqueKeys[ck]) uniqueKeys[ck] = { market: s.market, ticker: s.ticker };
+  }
+  const jobs = Object.values(uniqueKeys);
+  const cache = {};
+
+  // 시장별 병렬 조회 (KR은 KIS 초당 제한 때문에 2개씩 병렬)
+  const krJobs = jobs.filter(j => j.market === 'KR');
+  const usJobs = jobs.filter(j => j.market === 'US');
+  const goldJobs = jobs.filter(j => j.market === 'GOLD');
+
+  // US + GOLD는 완전 병렬
+  const usGoldPromises = [
+    ...usJobs.map(j => fetchUS(j.ticker).then(p => { cache['US:' + j.ticker] = p; })),
+    ...goldJobs.map(j => fetchGold().then(p => { cache['GOLD:' + j.ticker] = p; })),
+  ];
+
+  // KR은 2개씩 병렬 (KIS API 초당 제한 대응)
+  const krPromise = (async () => {
+    for (let i = 0; i < krJobs.length; i += 2) {
+      const batch = krJobs.slice(i, i + 2);
+      const results = await Promise.all(batch.map(j => fetchKR(j.ticker, tok)));
+      batch.forEach((j, idx) => { cache['KR:' + j.ticker] = results[idx]; });
     }
-    const p = cache[cacheKey];
+  })();
+
+  await Promise.all([...usGoldPromises, krPromise]);
+
+  for (const s of pf) {
+    const p = cache[s.market + ':' + s.ticker];
     if (p) {
       px[s.id] = p;
-      // 한글 이름이 이미 있으면 영문/Yahoo 이름으로 덮어쓰지 않음
       if (p.name && p.name !== s.ticker) {
         const hasKorean = /[가-힣]/.test(s.name);
         const newHasKorean = /[가-힣]/.test(p.name);
