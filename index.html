@@ -1579,8 +1579,6 @@ function renderSummary() {
         }
       }
       const yearGain = (totalCurPnl - totalYearEndPnl) + totalRealized + totalFxGain;
-      // 일별 금년 손익 기록
-      saveYearGainHistory(yearGain);
       const cls = yearGain >= 0 ? 'up' : 'down';
       const totalAcctCost = Object.values(acctMap).reduce((s, a) => s + a.cost, 0);
       const yearPctVal = totalAcctCost > 0 ? (yearGain / totalAcctCost) * 100 : 0;

@@ -5,14 +5,14 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // rewrite: /api/kis/oauth2/tokenP → /api/kis-proxy?kisPath=oauth2/tokenP
+  // rewrite: /api/kis/uapi/...?foo=bar → /api/kis-proxy?kisPath=uapi/...&foo=bar
   const kisPath = req.query.kisPath || '';
-  // kisPath 이외의 쿼리 파라미터 전달
   const extra = Object.entries(req.query)
     .filter(([k]) => k !== 'kisPath')
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
     .join('&');
   const target = `https://openapi.koreainvestment.com:9443/${kisPath}${extra ? '?' + extra : ''}`;
+  console.log('[kis proxy] method:', req.method, '| target:', target);
 
   const fwdHeaders = {};
   const passKeys = ['content-type', 'authorization', 'appkey', 'appsecret', 'tr_id', 'custtype'];
