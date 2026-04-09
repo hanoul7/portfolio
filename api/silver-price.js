@@ -5,6 +5,7 @@ export default async function handler(req, res) {
     { url: 'https://query2.finance.yahoo.com/v8/finance/chart/SI=F?interval=1m&range=1d', label: 'query2/SI=F' },
     { url: 'https://query1.finance.yahoo.com/v8/finance/chart/SI=F?interval=1m&range=1d', label: 'query1/SI=F' },
     { url: 'https://query2.finance.yahoo.com/v8/finance/chart/XAG=X?interval=1m&range=1d', label: 'query2/XAG=X' },
+    { url: 'https://query1.finance.yahoo.com/v8/finance/chart/XAG=X?interval=1m&range=1d', label: 'query1/XAG=X' },
   ];
 
   const errors = [];

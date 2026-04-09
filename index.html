@@ -942,6 +942,7 @@ async function fetchSilver() {
   const TROY_OZ_TO_GRAM = 31.1034768;
   try {
     const r = await fetch('/api/silver-price');
+    if (!r.ok) { console.log('[silver] API error:', r.status); return null; }
     const d = await r.json();
     if (d.price > 0 && usdkrw > 0) {
       const perGram = d.price * usdkrw / TROY_OZ_TO_GRAM * silverPremium;
