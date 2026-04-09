@@ -910,7 +910,7 @@ async function fetchKR(ticker, tok) {
     const d = await r.json();
     if (d.price > 0) {
       const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
-      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: d.name || ticker, marketState: d.marketState };
+      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: null, marketState: d.marketState };
     }
   } catch(e) {}
   return null;
@@ -1093,7 +1093,7 @@ async function refreshAll() {
     const p = cache[cacheKey];
     if (p) {
       px[s.id] = p;
-      if (p.name && p.name !== s.ticker) s.name = p.name;
+      if (p.name && p.name !== s.ticker && !/\.\w{1,2}$/.test(p.name)) s.name = p.name;
       ok++;
     } else fail++;
   }
