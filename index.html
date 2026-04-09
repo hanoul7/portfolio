@@ -492,7 +492,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   </div>
   <div class="summary-row" style="margin-bottom:18px">
     <div class="card summary-wide" id="year-card" style="transition:background 0.3s">
-      <div class="card-label">금년 손익 <span style="font-size:9px;font-weight:400;color:var(--text3)">(설정에서 기준값 입력)</span></div>
+      <div class="card-label">금년 손익</div>
       <div class="card-value sm" id="s-year">—</div>
       <div class="card-sub" id="s-year-sub">—</div>
     </div>
@@ -869,7 +869,7 @@ async function fetchGold() {
   } catch(e) {}
 
   // 2) 장중이면 KIS API로 411060(ACE KRX금현물) 조회 → 프리미엄 자동 계산
-  const ETF_RATIO = 7.145; // 411060 ETF 1주 = 금 1/7.145g (MTS 실측 기반)
+  let etfRatio = parseFloat(localStorage.getItem('gold_etf_ratio') || '0');
   if (isKrMarketOpen() && appKey && appSecret) {
     try {
       const tok = await getToken();
@@ -881,11 +881,17 @@ async function fetchGold() {
         const o = d?.output;
         const etfPrice = parseInt(o?.stck_prpr || '0');
         if (etfPrice > 0 && intlPerGram > 0) {
-          const krxPerGram = etfPrice * ETF_RATIO;
+          // ETF→g 비율 갱신 (etfPrice × ratio = KRX 금 1g 가격)
+          // 첫 사용 시 또는 비율 없을 때: 국제금 기준으로 초기 비율 추정
+          if (etfRatio <= 0) {
+            etfRatio = intlPerGram / etfPrice;
+            localStorage.setItem('gold_etf_ratio', etfRatio.toFixed(4));
+          }
+          const krxPerGram = etfPrice * etfRatio;
           const autoPremium = krxPerGram / intlPerGram;
           goldPremium = Math.round(autoPremium * 10000) / 10000;
           localStorage.setItem('gold_premium', goldPremium.toString());
-          console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(4), '| ETF:', etfPrice, '× 7.145 = KRX/g:', Math.round(krxPerGram), '| 국제금/g:', Math.round(intlPerGram));
+          console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(4), '| ETF:', etfPrice, '| ETF비율:', etfRatio.toFixed(4), '| KRX/g:', Math.round(krxPerGram), '| 국제금/g:', Math.round(intlPerGram));
         }
       }
     } catch(e) { console.error('[GOLD] 411060 error:', e); }
@@ -1171,15 +1177,14 @@ function renderSummary() {
   const yearCard = document.getElementById('year-card');
   if (prevYearEndVal > 0 && hasP) {
     const yearGain = (totalEval - prevYearEndVal) + thisYearRealized;
-    const yearPct = (yearGain / prevYearEndVal) * 100;
     yearEl.textContent = fmtSign(Math.round(yearGain)) + '원';
     yearEl.className = 'card-value sm ' + (yearGain >= 0 ? 'up' : 'down');
     const parts = [];
-    parts.push('수익률 ' + fmtPct(yearPct));
     if (thisYearRealized !== 0) parts.push('실현 ' + fmtSign(thisYearRealized) + '원');
     yearSub.textContent = parts.join(' · ');
     if (yearCard) {
-      const a = (0.03 + Math.min(Math.abs(yearPct) / 50, 1) * 0.15).toFixed(2);
+      const yearPct = totalEval > 0 ? Math.abs(yearGain / totalEval) * 100 : 0;
+      const a = (0.03 + Math.min(yearPct / 50, 1) * 0.15).toFixed(2);
       yearCard.style.background = yearGain >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
     }
   } else {
