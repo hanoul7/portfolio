@@ -927,6 +927,21 @@ async function fetchKR(ticker, tok) {
 }
 
 // ── 미국 주식 현재가 (Yahoo Finance) ──
+async function fetchSilver() {
+  const TROY_OZ_TO_GRAM = 31.1034768;
+  try {
+    const r = await fetch('/api/silver-price');
+    const d = await r.json();
+    if (d.price > 0 && usdkrw > 0) {
+      const perGram = d.price * usdkrw / TROY_OZ_TO_GRAM;
+      const prevPerGram = (d.prevClose || d.price) * usdkrw / TROY_OZ_TO_GRAM;
+      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
+      return { priceKrw: perGram, priceLocal: perGram, prevClose: prevPerGram, changeRatio: chg, name: '은현물(XAG)' };
+    }
+  } catch(e) { console.log('[silver] error:', e.message); }
+  return null;
+}
+
 async function fetchUnlisted(ticker) {
   try {
     const r = await fetch(`/api/unlisted?name=${encodeURIComponent(ticker)}`);
@@ -1134,7 +1149,11 @@ async function refreshAll() {
   const usGoldPromises = [
     ...usJobs.map(j => fetchUS(j.ticker).then(p => { cache['US:' + j.ticker] = p; })),
     ...goldJobs.map(j => fetchGold().then(p => { cache['GOLD:' + j.ticker] = p; })),
-    ...manualJobs.map(j => fetchUnlisted(j.ticker).then(p => { if (p) cache['MANUAL:' + j.ticker] = p; })),
+    ...manualJobs.map(j => {
+      const isSilver = /은현물|실버|SILVER|XAG/i.test(j.ticker);
+      const fn = isSilver ? fetchSilver() : fetchUnlisted(j.ticker);
+      return fn.then(p => { if (p) cache['MANUAL:' + j.ticker] = p; });
+    }),
   ];
 
   // KR은 2개씩 병렬 (KIS API 초당 제한 대응)
@@ -1572,8 +1591,13 @@ async function lookupName() {
 
   // 수기입력
   if (isManual) {
-    nameEl.value = tick;
-    hint.innerHTML = `✓ <strong style="color:var(--text)">수기입력</strong> <span style="color:var(--text3);font-size:10px">현재가를 직접 입력하세요</span>`;
+    const isSilver = /은현물|실버|SILVER|XAG/i.test(tick);
+    nameEl.value = isSilver ? '은현물(XAG)' : tick;
+    if (isSilver) {
+      hint.innerHTML = '✓ <strong style="color:var(--text)">은현물(XAG)</strong> <span style="color:var(--text3);font-size:10px">국제시세 자동조회 · 프리미엄 수기 적용</span>';
+    } else {
+      hint.innerHTML = `✓ <strong style="color:var(--text)">수기입력</strong> <span style="color:var(--text3);font-size:10px">현재가를 직접 입력하세요</span>`;
+    }
     hint.style.color = '#0a8a4a';
     return;
   }
