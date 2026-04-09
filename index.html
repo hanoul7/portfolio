@@ -479,12 +479,12 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     </div>
   </div>
   <div class="summary-row" style="margin-bottom:18px">
-    <div class="card">
+    <div class="card" id="pnl-card" style="transition:background 0.3s">
       <div class="card-label">총 손익</div>
       <div class="card-value sm" id="s-pnl">—</div>
       <div class="card-sub" id="s-pct">—</div>
     </div>
-    <div class="card">
+    <div class="card" id="today-card" style="transition:background 0.3s">
       <div class="card-label">오늘 손익</div>
       <div class="card-value sm" id="s-today">—</div>
       <div class="card-sub" id="s-time">—</div>
@@ -499,31 +499,32 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
   <!-- 시장 지표 -->
   <div class="market-grid">
-    <div class="market-card">
+    <div class="market-card" id="rate-card">
       <div class="market-label">USD/KRW</div>
       <div class="market-val" id="rate-val">—</div>
+      <div class="market-chg" id="rate-chg"></div>
     </div>
-    <div class="market-card">
+    <div class="market-card" id="card-kospi">
       <div class="market-label">KOSPI</div>
       <div class="market-val" id="idx-kospi">—</div>
       <div class="market-chg" id="idx-kospi-chg"></div>
     </div>
-    <div class="market-card">
+    <div class="market-card" id="card-dow">
       <div class="market-label">DOW JONES</div>
       <div class="market-val" id="idx-dow">—</div>
       <div class="market-chg" id="idx-dow-chg"></div>
     </div>
-    <div class="market-card">
+    <div class="market-card" id="card-oil">
       <div class="market-label">WTI 유가</div>
       <div class="market-val" id="idx-oil">—</div>
       <div class="market-chg" id="idx-oil-chg"></div>
     </div>
-    <div class="market-card">
+    <div class="market-card" id="card-btc">
       <div class="market-label">BITCOIN</div>
       <div class="market-val" id="idx-btc">—</div>
       <div class="market-chg" id="idx-btc-chg"></div>
     </div>
-    <div class="market-card">
+    <div class="market-card" id="card-gold">
       <div class="market-label">GOLD</div>
       <div class="market-val" id="idx-gold">—</div>
       <div class="market-chg" id="idx-gold-chg"></div>
@@ -708,6 +709,13 @@ function setSt(type, txt) {
   const d = document.getElementById('sdot');
   d.className = 'status-dot' + (type ? ' ' + type : '');
   document.getElementById('status-txt').textContent = txt;
+  const bar = document.querySelector('.status-bar');
+  if (bar) {
+    if (type === 'ok') bar.style.background = 'rgba(16,185,129,0.08)';
+    else if (type === 'error') bar.style.background = 'rgba(239,68,68,0.08)';
+    else if (type === 'loading') bar.style.background = 'rgba(180,83,9,0.08)';
+    else bar.style.background = '';
+  }
 }
 
 // ── KIS API: 토큰 관리 ──
@@ -841,25 +849,50 @@ async function fetchGold() {
 
 // ── 환율 ──
 async function fetchRate() {
-  // USD/KRW
+  // USD/KRW: Yahoo Finance 실시간
   try {
-    const r = await fetch('https://open.er-api.com/v6/latest/USD');
+    const r = await fetch('/api/quote?symbol=KRW%3DX&market=US');
     const d = await r.json();
-    if (d?.rates?.KRW) {
-      usdkrw = d.rates.KRW;
-      document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
+    if (d.price > 0) {
+      usdkrw = d.price;
+      const el = document.getElementById('rate-val');
+      el.textContent = fmt(usdkrw) + '원';
+      if (d.prevClose > 0) {
+        const fxChg = ((usdkrw - d.prevClose) / d.prevClose) * 100;
+        const fxChgEl = document.getElementById('rate-chg');
+        if (fxChgEl) {
+          fxChgEl.textContent = (fxChg >= 0 ? '+' : '') + fxChg.toFixed(2) + '%';
+          fxChgEl.className = 'market-chg ' + (fxChg >= 0 ? 'up' : 'down');
+        }
+        // 환율 카드 배경
+        const fxCard = document.getElementById('rate-card');
+        if (fxCard) {
+          const a = (0.03 + Math.min(Math.abs(fxChg) / 5, 1) * 0.15).toFixed(2);
+          fxCard.style.background = fxChg >= 0 ? `rgba(239,68,68,${a})` : `rgba(16,185,129,${a})`;
+        }
+      }
     }
-  } catch(e) { console.error('[fetchRate] USD/KRW error:', e); }
+  } catch(e) {
+    // fallback: open.er-api
+    try {
+      const r = await fetch('https://open.er-api.com/v6/latest/USD');
+      const d = await r.json();
+      if (d?.rates?.KRW) {
+        usdkrw = d.rates.KRW;
+        document.getElementById('rate-val').textContent = fmt(usdkrw) + '원';
+      }
+    } catch(e2) { console.error('[fetchRate] error:', e2); }
+  }
 }
 
 // ── 시장 지표 조회 ──
 async function fetchIndices() {
   const indices = [
-    { symbol: '^KS11', elVal: 'idx-kospi', elChg: 'idx-kospi-chg', fmt: v => v.toFixed(2) },
-    { symbol: '^DJI', elVal: 'idx-dow', elChg: 'idx-dow-chg', fmt: v => fmt(Math.round(v)) },
-    { symbol: 'CL=F', elVal: 'idx-oil', elChg: 'idx-oil-chg', fmt: v => '$' + v.toFixed(2) },
-    { symbol: 'BTC-USD', elVal: 'idx-btc', elChg: 'idx-btc-chg', fmt: v => '$' + fmt(Math.round(v)) },
-    { symbol: 'GC=F', elVal: 'idx-gold', elChg: 'idx-gold-chg', fmt: v => '$' + v.toFixed(2) },
+    { symbol: '^KS11', elVal: 'idx-kospi', elChg: 'idx-kospi-chg', cardId: 'card-kospi', fmt: v => v.toFixed(2) },
+    { symbol: '^DJI', elVal: 'idx-dow', elChg: 'idx-dow-chg', cardId: 'card-dow', fmt: v => fmt(Math.round(v)) },
+    { symbol: 'CL=F', elVal: 'idx-oil', elChg: 'idx-oil-chg', cardId: 'card-oil', fmt: v => '$' + v.toFixed(2) },
+    { symbol: 'BTC-USD', elVal: 'idx-btc', elChg: 'idx-btc-chg', cardId: 'card-btc', fmt: v => '$' + fmt(Math.round(v)) },
+    { symbol: 'GC=F', elVal: 'idx-gold', elChg: 'idx-gold-chg', cardId: 'card-gold', fmt: v => '$' + v.toFixed(2) },
   ];
   await Promise.allSettled(indices.map(async idx => {
     try {
@@ -872,6 +905,12 @@ async function fetchIndices() {
           const el = document.getElementById(idx.elChg);
           el.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
           el.className = 'market-chg ' + (chg >= 0 ? 'up' : 'down');
+          // 카드 배경색
+          const card = document.getElementById(idx.cardId);
+          if (card) {
+            const a = (0.03 + Math.min(Math.abs(chg) / 5, 1) * 0.12).toFixed(2);
+            card.style.background = chg >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
+          }
         }
       }
     } catch(e) {}
@@ -1046,15 +1085,28 @@ function renderSummary() {
   document.getElementById('s-eval').textContent = hasP ? fmt(totalEval) + '원' : '—';
   document.getElementById('s-cost').textContent = '매입 ' + fmt(totalCost) + '원';
 
+  // 총 손익 카드
   const pe = document.getElementById('s-pnl');
   pe.textContent = hasP ? fmtSign(gain) + '원' : '—';
   pe.className = 'card-value sm ' + (gain >= 0 ? 'up' : 'down');
   document.getElementById('s-pct').textContent = hasP ? fmtPct(gainPct) : '';
+  const pnlCard = document.getElementById('pnl-card');
+  if (pnlCard && hasP) {
+    const a = (0.03 + Math.min(Math.abs(gainPct) / 50, 1) * 0.15).toFixed(2);
+    pnlCard.style.background = gain >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
+  }
 
+  // 오늘 손익 카드
   const te = document.getElementById('s-today');
   te.textContent = hasPrev ? fmtSign(Math.round(todayPnl)) + '원' : '—';
   te.className = 'card-value sm ' + (todayPnl >= 0 ? 'up' : 'down');
   document.getElementById('s-time').textContent = hasPrev ? '전일 대비' : '';
+  const todayCard = document.getElementById('today-card');
+  if (todayCard && hasPrev) {
+    const todayPct = totalEval > 0 ? Math.abs(todayPnl / totalEval) * 100 : 0;
+    const a = (0.03 + Math.min(todayPct / 5, 1) * 0.15).toFixed(2);
+    todayCard.style.background = todayPnl >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
+  }
 }
 
 // ── 종목명 자동조회 ──
