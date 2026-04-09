@@ -853,19 +853,6 @@ async function fetchUS(ticker) {
 // ── 금현물: /api/gold-price (Yahoo Finance + metals.live fallback) ──
 async function fetchGold() {
   const TROY_OZ_TO_GRAM = 31.1034768;
-  try {
-    const r = await fetch('/api/gold-price');
-    const d = await r.json();
-    console.log('[GOLD] response:', JSON.stringify(d));
-    if (d.price > 0 && usdkrw > 0) {
-      xauUsd = d.price;
-      const prevClose = d.prevClose || xauUsd;
-      const chg = d.prevClose ? ((xauUsd - prevClose) / prevClose) * 100 : 0;
-      const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
-      const prevPerGram = Math.round(prevClose * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
-      return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: chg, name: '금현물(XAU)', estimated: false };
-    }
-  } catch(e) { console.error('[GOLD] fetch error:', e); }
 
   // ── 테스트: KIS API로 ACE KRX금현물 ETF(411060) 조회 ──
   if (appKey && appSecret) {
@@ -879,13 +866,26 @@ async function fetchGold() {
         const o = d?.output;
         const etfPrice = parseInt(o?.stck_prpr || '0');
         const etfPrev = parseInt(o?.stck_sdpr || '0');
-        const xauPerGram = xauUsd > 0 && usdkrw > 0 ? Math.round(xauUsd * usdkrw / 31.1034768) : 0;
+        const xauPerGram = xauUsd > 0 && usdkrw > 0 ? Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM) : 0;
         console.log('[TEST 411060] ETF price:', etfPrice, '| prev:', etfPrev, '| XAU환산:', xauPerGram, '| 차이:', etfPrice - xauPerGram, '| rt_cd:', d?.rt_cd, '| msg:', d?.msg1);
         console.log('[TEST 411060] full output:', JSON.stringify(o).slice(0, 500));
       }
     } catch(e) { console.error('[TEST 411060] error:', e); }
   }
 
+  try {
+    const r = await fetch('/api/gold-price');
+    const d = await r.json();
+    console.log('[GOLD] response:', JSON.stringify(d));
+    if (d.price > 0 && usdkrw > 0) {
+      xauUsd = d.price;
+      const prevClose = d.prevClose || xauUsd;
+      const chg = d.prevClose ? ((xauUsd - prevClose) / prevClose) * 100 : 0;
+      const pricePerGram = Math.round(xauUsd * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
+      const prevPerGram = Math.round(prevClose * usdkrw / TROY_OZ_TO_GRAM * goldPremium);
+      return { priceKrw: pricePerGram, priceLocal: pricePerGram, prevClose: prevPerGram, changeRatio: chg, name: '금현물(XAU)', estimated: false };
+    }
+  } catch(e) { console.error('[GOLD] fetch error:', e); }
   return null;
 }
 
