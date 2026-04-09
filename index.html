@@ -664,7 +664,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     <div class="modal-handle"></div>
     <div class="modal-title">금년 손익 계좌</div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div style="font-size:12px;color:var(--text3)">계좌별 작년말 평가금액과 금년 실현 수익금을 입력하세요</div>
+      <div style="font-size:12px;color:var(--text3)">계좌별 작년말 손익액과 금년 실현 수익금을 입력하세요 (손익액: 평가손익)</div>
       <button type="button" onclick="addYearAccount()" style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text2);cursor:pointer;white-space:nowrap;margin-left:8px">+ 추가</button>
     </div>
     <div id="year-accounts-list"></div>
@@ -688,14 +688,8 @@ let refreshing = false;
 let xauUsd = 0;
 let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '1.02');
 let yearAccounts = JSON.parse(localStorage.getItem('year_accounts') || '[]');
-// 이전 단일 값 마이그레이션
-if (yearAccounts.length === 0) {
-  const oldEnd = parseFloat(localStorage.getItem('prev_year_end_val') || '0');
-  const oldReal = parseFloat(localStorage.getItem('this_year_realized') || '0');
-  if (oldEnd > 0 || oldReal !== 0) {
-    yearAccounts = [{ name: '계좌1', yearEndVal: oldEnd, realized: oldReal }];
-    localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
-  }
+// 이전 단일 값은 평가금액 기준이라 손익액과 의미가 달라 마이그레이션하지 않음
+if (false) {
 }
 
 // ── 초기화 ──
@@ -1213,10 +1207,13 @@ function renderSummary() {
     }
 
     // 금년 손익 (전체 합산 + 계좌별)
-    const totalYearEnd = yearAccounts.reduce((s, a) => s + (a.yearEndVal || 0), 0);
+    // 계산: 금년손익 = (현재 평가손익 - 작년말 손익) + 실현손익
+    const totalCurPnl = Object.values(acctMap).reduce((s, a) => s + (a.eval - a.cost), 0);
+    const totalYearEndPnl = yearAccounts.reduce((s, a) => s + (a.yearEndPnl || 0), 0);
     const totalRealized = yearAccounts.reduce((s, a) => s + (a.realized || 0), 0);
-    if (totalYearEnd > 0 && hasP) {
-      const yearGain = (totalEval - totalYearEnd) + totalRealized;
+    const hasYearAccounts = yearAccounts.length > 0;
+    if (hasYearAccounts && hasP) {
+      const yearGain = (totalCurPnl - totalYearEndPnl) + totalRealized;
       const cls = yearGain >= 0 ? 'up' : 'down';
       const yearPct = totalEval > 0 ? Math.abs(yearGain / totalEval) * 100 : 0;
       const alpha = (0.03 + Math.min(yearPct / 50, 1) * 0.15).toFixed(2);
@@ -1236,10 +1233,11 @@ function renderSummary() {
       if (yearAccounts.length > 1) {
         let yCards = '';
         for (const ya of yearAccounts) {
-          if (!ya.yearEndVal) continue;
-          const aEval = acctMap[ya.name] ? acctMap[ya.name].eval : 0;
-          const yg = (aEval - ya.yearEndVal) + (ya.realized || 0);
+          const a = acctMap[ya.name];
+          const curPnl = a ? (a.eval - a.cost) : 0;
+          const yg = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0);
           const yCls = yg >= 0 ? 'up' : 'down';
+          const aEval = a ? a.eval : 0;
           const yAlpha = (0.03 + Math.min(Math.abs(aEval > 0 ? yg / aEval * 100 : 0) / 50, 1) * 0.12).toFixed(2);
           const yBg = yg >= 0 ? `rgba(16,185,129,${yAlpha})` : `rgba(239,68,68,${yAlpha})`;
           let ySub = [];
@@ -1470,8 +1468,8 @@ function renderYearAccounts() {
         </div>
         <div style="display:flex;gap:6px">
           <div style="flex:1">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:2px">작년말 평가금액</div>
-            <input type="number" value="${acc.yearEndVal || ''}" placeholder="0" data-ya="${i}" data-field="yearEndVal" onchange="updateYearAccount(this)" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
+            <div style="font-size:10px;color:var(--text3);margin-bottom:2px">작년말 손익액</div>
+            <input type="number" value="${acc.yearEndPnl || ''}" placeholder="0" data-ya="${i}" data-field="yearEndPnl" onchange="updateYearAccount(this)" inputmode="numeric" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
           </div>
           <div style="flex:1">
             <div style="font-size:10px;color:var(--text3);margin-bottom:2px">실현 수익금</div>
@@ -1488,7 +1486,7 @@ function renderYearAccounts() {
 }
 
 function addYearAccount() {
-  yearAccounts.push({ name: '', yearEndVal: 0, realized: 0 });
+  yearAccounts.push({ name: '', yearEndPnl: 0, realized: 0 });
   renderYearAccounts();
 }
 
@@ -1581,7 +1579,7 @@ function importData(e) {
       if (Array.isArray(data.portfolio)) { pf = data.portfolio; save(); }
       if (data.goldPremium > 0) { goldPremium = data.goldPremium; localStorage.setItem('gold_premium', goldPremium.toString()); document.getElementById('api-premium').value = goldPremium; }
       if (Array.isArray(data.yearAccounts)) { yearAccounts = data.yearAccounts; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
-      else if (data.prevYearEndVal > 0) { yearAccounts = [{ name: '계좌1', yearEndVal: data.prevYearEndVal, realized: data.thisYearRealized || 0 }]; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
+      else if (data.prevYearEndVal > 0) { yearAccounts = [{ name: '계좌1', yearEndPnl: data.prevYearEndVal, realized: data.thisYearRealized || 0 }]; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       token = ''; tokenExp = 0;
       localStorage.removeItem('kis_token');
       localStorage.removeItem('kis_token_exp');
