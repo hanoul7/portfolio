@@ -1151,7 +1151,7 @@ function renderList() {
     if (!groups[key]) groups[key] = [];
     groups[key].push(s);
   }
-  const groupKeys = Object.keys(groups).filter(k => k !== '').sort();
+  const groupKeys = Object.keys(groups).filter(k => k !== '');
   if (groups['']) groupKeys.push('');
 
   // 계좌별 집계
@@ -1167,13 +1167,33 @@ function renderList() {
     acctStats[key] = { cost, eval: ev };
   }
 
+  // 계좌를 비중(평가액) 순으로 정렬
+  groupKeys.sort((a, b) => (acctStats[b]?.eval || 0) - (acctStats[a]?.eval || 0));
+
   const hasMultiAcct = groupKeys.length > 1 || (groupKeys.length === 1 && groupKeys[0] !== '');
 
   el.innerHTML = groupKeys.map(key => {
-    const stocks = groups[key];
-    const stocksHtml = stocks.map(s => renderStockCard(s, totalEval)).join('');
+    // 종목을 비중(평가액) 순으로 정렬
+    const stocks = groups[key].slice().sort((a, b) => {
+      const eA = px[a.id] ? px[a.id].priceKrw * a.qty : 0;
+      const eB = px[b.id] ? px[b.id].priceKrw * b.qty : 0;
+      return eB - eA;
+    });
+    const VISIBLE = 3;
+    const visibleHtml = stocks.slice(0, VISIBLE).map(s => renderStockCard(s, totalEval)).join('');
+    const hiddenStocks = stocks.slice(VISIBLE);
+    let stocksHtml = visibleHtml;
+    if (hiddenStocks.length > 0) {
+      const gid = 'acct-more-' + key.replace(/\W/g, '_');
+      stocksHtml += `<div id="${gid}" style="display:none">${hiddenStocks.map(s => renderStockCard(s, totalEval)).join('')}</div>`;
+      stocksHtml += `<div style="text-align:center;padding:6px 0">
+        <button onclick="event.stopPropagation();toggleAcctMore('${gid}',this,${hiddenStocks.length})" style="font-size:11px;color:var(--text3);background:none;border:1px solid var(--border);border-radius:8px;padding:4px 14px;cursor:pointer">
+          +${hiddenStocks.length}개 더보기
+        </button>
+      </div>`;
+    }
 
-    if (!hasMultiAcct) return stocksHtml;
+    if (!hasMultiAcct) return stocks.map(s => renderStockCard(s, totalEval)).join('');
 
     const stat = acctStats[key];
     const g = stat.eval - stat.cost;
@@ -1666,6 +1686,14 @@ function saveYearAccounts() {
     yearAccounts[i][el.dataset.field] = parseFloat(el.value) || 0;
   });
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+}
+
+function toggleAcctMore(id, btn, count) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const hidden = el.style.display === 'none';
+  el.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '접기' : `+${count}개 더보기`;
 }
 
 function renameAcct(oldName) {
