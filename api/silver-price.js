@@ -1,28 +1,33 @@
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const urls = [
-    'https://query1.finance.yahoo.com/v8/finance/chart/SI=F?interval=1d&range=1d',
-    'https://query2.finance.yahoo.com/v8/finance/chart/SI=F?interval=1d&range=1d',
+  const sources = [
+    { url: 'https://query2.finance.yahoo.com/v8/finance/chart/SI=F?interval=1m&range=1d', label: 'query2/SI=F' },
+    { url: 'https://query1.finance.yahoo.com/v8/finance/chart/SI=F?interval=1m&range=1d', label: 'query1/SI=F' },
+    { url: 'https://query2.finance.yahoo.com/v8/finance/chart/XAG=X?interval=1m&range=1d', label: 'query2/XAG=X' },
   ];
 
-  for (const url of urls) {
+  const errors = [];
+
+  for (const { url, label } of sources) {
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
       });
       const d = await r.json();
       const meta = d?.chart?.result?.[0]?.meta;
-      if (meta?.regularMarketPrice) {
-        return res.json({
-          price: meta.regularMarketPrice,
-          prevClose: meta.chartPreviousClose || meta.previousClose,
-          currency: 'USD',
-          unit: 'troy oz'
-        });
+      const price = meta?.regularMarketPrice;
+      const prevClose = meta?.chartPreviousClose || meta?.previousClose;
+      if (price > 0) {
+        console.log(`[silver-price] OK from ${label}: $${price}`);
+        return res.json({ price, prevClose, source: label });
       }
-    } catch(e) {}
+      errors.push(`${label}: price=${price} (status ${r.status})`);
+    } catch(e) {
+      errors.push(`${label}: ${e.message}`);
+    }
   }
 
-  return res.status(500).json({ error: 'silver price unavailable' });
+  console.log('[silver-price] all sources failed:', errors.join(' | '));
+  return res.status(500).json({ error: 'silver price unavailable', details: errors });
 }
