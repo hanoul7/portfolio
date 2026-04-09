@@ -1193,7 +1193,7 @@ function renderList() {
       const eB = px[b.id] ? px[b.id].priceKrw * b.qty : 0;
       return eB - eA;
     });
-    const VISIBLE = 3;
+    const VISIBLE = 1;
     const visibleHtml = stocks.slice(0, VISIBLE).map(s => renderStockCard(s, totalEval)).join('');
     const hiddenStocks = stocks.slice(VISIBLE);
     let stocksHtml = visibleHtml;
@@ -1377,10 +1377,8 @@ function renderSummary() {
   if (hdr) {
     const evalText = hasP ? fmtKr(totalEval) : '—';
     hdr.innerHTML = `
-      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
-        <div style="font-size:13px;font-weight:700;color:var(--text)">보유 종목 <span style="color:var(--accent);font-family:var(--mono)">${pf.length}</span><span style="font-size:11px;color:var(--text3);font-weight:400">개</span></div>
-        <div style="font-size:20px;font-weight:800;color:var(--text);font-family:var(--mono);letter-spacing:-0.03em">${evalText}</div>
-      </div>
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">보유 종목 <span style="color:var(--accent);font-family:var(--mono)">${pf.length}</span><span style="font-size:11px;color:var(--text3);font-weight:400">개</span></div>
+      <div style="font-size:20px;font-weight:800;color:var(--text);font-family:var(--mono);letter-spacing:-0.03em">${evalText}</div>
     `;
   }
 
