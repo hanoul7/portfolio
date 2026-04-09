@@ -942,22 +942,6 @@ async function fetchSilver() {
   return null;
 }
 
-async function fetchUnlisted(ticker) {
-  try {
-    const r = await fetch(`/api/unlisted?name=${encodeURIComponent(ticker)}`);
-    const d = await r.json();
-    if (d.price > 0) {
-      // 수기 가격도 갱신
-      for (const s of pf) {
-        if (s.market === 'MANUAL' && s.ticker === ticker) s.manualPrice = d.price;
-      }
-      save();
-      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.price, changeRatio: d.changeRate || 0, name: d.name || ticker };
-    }
-  } catch(e) { console.log('[unlisted] failed:', ticker, e.message); }
-  return null;
-}
-
 async function fetchUS(ticker) {
   try {
     const r = await fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}&market=US`);
@@ -1151,8 +1135,8 @@ async function refreshAll() {
     ...goldJobs.map(j => fetchGold().then(p => { cache['GOLD:' + j.ticker] = p; })),
     ...manualJobs.map(j => {
       const isSilver = /은현물|실버|SILVER|XAG/i.test(j.ticker);
-      const fn = isSilver ? fetchSilver() : fetchUnlisted(j.ticker);
-      return fn.then(p => { if (p) cache['MANUAL:' + j.ticker] = p; });
+      if (!isSilver) return Promise.resolve();
+      return fetchSilver().then(p => { if (p) cache['MANUAL:' + j.ticker] = p; });
     }),
   ];
 
