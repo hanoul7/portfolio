@@ -655,15 +655,11 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <input id="api-premium" type="number" step="0.01" placeholder="1.02" style="font-family:var(--mono);font-size:13px" />
     </div>
     <div style="padding-top:16px;border-top:1px solid var(--border);margin-bottom:16px">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">금년 수익률 기준</div>
-      <div class="ff" style="margin-bottom:10px">
-        <label class="fl">작년 말 평가금액 (원)</label>
-        <input id="api-year-end" type="number" placeholder="50000000" inputmode="numeric" style="font-family:var(--mono);font-size:13px" />
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">금년 손익 계좌</div>
+        <button type="button" onclick="addYearAccount()" style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text2);cursor:pointer">+ 계좌 추가</button>
       </div>
-      <div class="ff">
-        <label class="fl">금년 실현 수익금 (원) <span style="font-weight:400;font-size:10px;color:var(--text3)">매도 등 확정 손익</span></label>
-        <input id="api-year-realized" type="number" placeholder="0" inputmode="numeric" style="font-family:var(--mono);font-size:13px" />
-      </div>
+      <div id="year-accounts-list"></div>
     </div>
     <div class="form-err" id="api-err"></div>
     <button class="btn-primary" onclick="saveApiKey()">저장 및 연결</button>
@@ -688,8 +684,16 @@ let appSecret = '';
 let refreshing = false;
 let xauUsd = 0;
 let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '1.02');
-let prevYearEndVal = parseFloat(localStorage.getItem('prev_year_end_val') || '0');
-let thisYearRealized = parseFloat(localStorage.getItem('this_year_realized') || '0');
+let yearAccounts = JSON.parse(localStorage.getItem('year_accounts') || '[]');
+// 이전 단일 값 마이그레이션
+if (yearAccounts.length === 0) {
+  const oldEnd = parseFloat(localStorage.getItem('prev_year_end_val') || '0');
+  const oldReal = parseFloat(localStorage.getItem('this_year_realized') || '0');
+  if (oldEnd > 0 || oldReal !== 0) {
+    yearAccounts = [{ name: '계좌1', yearEndVal: oldEnd, realized: oldReal }];
+    localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+  }
+}
 
 // ── 초기화 ──
 async function init() {
@@ -700,8 +704,7 @@ async function init() {
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
   document.getElementById('api-premium').value = goldPremium;
-  if (prevYearEndVal > 0) document.getElementById('api-year-end').value = prevYearEndVal;
-  if (thisYearRealized !== 0) document.getElementById('api-year-realized').value = thisYearRealized;
+  renderYearAccounts();
   render();
   fetchRate().then(() => fetchIndices());
   if (appKey && appSecret) {
@@ -1171,16 +1174,19 @@ function renderSummary() {
     todayCard.style.background = todayPnl >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
   }
 
-  // 금년 손익
+  // 금년 손익 (계좌 합산)
   const yearEl = document.getElementById('s-year');
   const yearSub = document.getElementById('s-year-sub');
   const yearCard = document.getElementById('year-card');
-  if (prevYearEndVal > 0 && hasP) {
-    const yearGain = (totalEval - prevYearEndVal) + thisYearRealized;
+  const totalYearEnd = yearAccounts.reduce((s, a) => s + (a.yearEndVal || 0), 0);
+  const totalRealized = yearAccounts.reduce((s, a) => s + (a.realized || 0), 0);
+  if (totalYearEnd > 0 && hasP) {
+    const yearGain = (totalEval - totalYearEnd) + totalRealized;
     yearEl.textContent = fmtSign(Math.round(yearGain)) + '원';
     yearEl.className = 'card-value sm ' + (yearGain >= 0 ? 'up' : 'down');
     const parts = [];
-    if (thisYearRealized !== 0) parts.push('실현 ' + fmtSign(thisYearRealized) + '원');
+    if (yearAccounts.length > 1) parts.push(yearAccounts.length + '개 계좌');
+    if (totalRealized !== 0) parts.push('실현 ' + fmtSign(totalRealized) + '원');
     yearSub.textContent = parts.join(' · ');
     if (yearCard) {
       const yearPct = totalEval > 0 ? Math.abs(yearGain / totalEval) * 100 : 0;
@@ -1190,7 +1196,7 @@ function renderSummary() {
   } else {
     yearEl.textContent = '—';
     yearEl.className = 'card-value sm';
-    yearSub.textContent = prevYearEndVal > 0 ? '' : '설정에서 작년 말 평가금액 입력';
+    yearSub.textContent = totalYearEnd > 0 ? '' : '설정에서 계좌 추가';
     if (yearCard) yearCard.style.background = '';
   }
 }
@@ -1381,8 +1387,60 @@ function saveEdit() {
   render();
 }
 
-function openApiModal() { document.getElementById('api-modal').classList.add('open'); }
+function openApiModal() { document.getElementById('api-modal').classList.add('open'); renderYearAccounts(); }
 function closeApiModal() { document.getElementById('api-modal').classList.remove('open'); }
+
+// ── 금년 손익 계좌 관리 ──
+function renderYearAccounts() {
+  const list = document.getElementById('year-accounts-list');
+  if (!list) return;
+  list.innerHTML = yearAccounts.map((acc, i) => `
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
+      <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+        <input type="text" value="${acc.name || ''}" placeholder="계좌명" data-ya="${i}" data-field="name" onchange="updateYearAccount(this)" style="font-size:12px;font-weight:600;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
+        <div style="display:flex;gap:4px">
+          <input type="number" value="${acc.yearEndVal || ''}" placeholder="작년말 평가금액" data-ya="${i}" data-field="yearEndVal" onchange="updateYearAccount(this)" inputmode="numeric" style="flex:1;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
+          <input type="number" value="${acc.realized || ''}" placeholder="실현 수익금" data-ya="${i}" data-field="realized" onchange="updateYearAccount(this)" inputmode="numeric" style="flex:1;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text1)" />
+        </div>
+      </div>
+      <button type="button" onclick="removeYearAccount(${i})" style="font-size:16px;padding:2px 6px;border:none;background:none;color:var(--text3);cursor:pointer" title="삭제">✕</button>
+    </div>
+  `).join('');
+  if (yearAccounts.length === 0) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px 0">계좌를 추가하세요</div>';
+  }
+}
+
+function addYearAccount() {
+  yearAccounts.push({ name: '', yearEndVal: 0, realized: 0 });
+  renderYearAccounts();
+}
+
+function removeYearAccount(idx) {
+  yearAccounts.splice(idx, 1);
+  saveYearAccounts();
+  renderYearAccounts();
+  render();
+}
+
+function updateYearAccount(el) {
+  const i = parseInt(el.dataset.ya);
+  const field = el.dataset.field;
+  if (field === 'name') yearAccounts[i].name = el.value;
+  else yearAccounts[i][field] = parseFloat(el.value) || 0;
+}
+
+function saveYearAccounts() {
+  // DOM에서 최신 값 읽기
+  document.querySelectorAll('[data-ya]').forEach(el => {
+    const i = parseInt(el.dataset.ya);
+    const field = el.dataset.field;
+    if (!yearAccounts[i]) return;
+    if (field === 'name') yearAccounts[i].name = el.value;
+    else yearAccounts[i][field] = parseFloat(el.value) || 0;
+  });
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+}
 
 function toggleSecret() {
   const inp = document.getElementById('api-secret');
@@ -1401,12 +1459,7 @@ function saveApiKey() {
     goldPremium = prem;
     try { localStorage.setItem('gold_premium', prem.toString()); } catch(e) {}
   }
-  const ye = parseFloat(document.getElementById('api-year-end').value);
-  prevYearEndVal = ye > 0 ? ye : 0;
-  localStorage.setItem('prev_year_end_val', prevYearEndVal.toString());
-  const yr = parseFloat(document.getElementById('api-year-realized').value);
-  thisYearRealized = !isNaN(yr) ? yr : 0;
-  localStorage.setItem('this_year_realized', thisYearRealized.toString());
+  saveYearAccounts();
   appKey = k; appSecret = s;
   token = ''; tokenExp = 0;
   try {
@@ -1425,8 +1478,7 @@ function exportData() {
     appKey, appSecret,
     portfolio: pf,
     goldPremium,
-    prevYearEndVal,
-    thisYearRealized
+    yearAccounts
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1453,8 +1505,8 @@ function importData(e) {
       if (data.appSecret) { appSecret = data.appSecret; localStorage.setItem('kis_secret', appSecret); document.getElementById('api-secret').value = appSecret; }
       if (Array.isArray(data.portfolio)) { pf = data.portfolio; save(); }
       if (data.goldPremium > 0) { goldPremium = data.goldPremium; localStorage.setItem('gold_premium', goldPremium.toString()); document.getElementById('api-premium').value = goldPremium; }
-      if (data.prevYearEndVal > 0) { prevYearEndVal = data.prevYearEndVal; localStorage.setItem('prev_year_end_val', prevYearEndVal.toString()); document.getElementById('api-year-end').value = prevYearEndVal; }
-      if (data.thisYearRealized !== undefined) { thisYearRealized = data.thisYearRealized || 0; localStorage.setItem('this_year_realized', thisYearRealized.toString()); document.getElementById('api-year-realized').value = thisYearRealized; }
+      if (Array.isArray(data.yearAccounts)) { yearAccounts = data.yearAccounts; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); renderYearAccounts(); }
+      else if (data.prevYearEndVal > 0) { yearAccounts = [{ name: '계좌1', yearEndVal: data.prevYearEndVal, realized: data.thisYearRealized || 0 }]; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); renderYearAccounts(); }
       token = ''; tokenExp = 0;
       localStorage.removeItem('kis_token');
       localStorage.removeItem('kis_token_exp');
