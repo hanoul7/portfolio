@@ -869,7 +869,7 @@ async function fetchGold() {
   } catch(e) {}
 
   // 2) 장중이면 KIS API로 411060(ACE KRX금현물) 조회 → 프리미엄 자동 계산
-  let etfRatio = parseFloat(localStorage.getItem('gold_etf_ratio') || '0');
+  const ETF_RATIO = 7.145; // 411060 ETF 1주 = 금 1/7.145g (MTS 실측 기반)
   if (isKrMarketOpen() && appKey && appSecret) {
     try {
       const tok = await getToken();
@@ -881,17 +881,11 @@ async function fetchGold() {
         const o = d?.output;
         const etfPrice = parseInt(o?.stck_prpr || '0');
         if (etfPrice > 0 && intlPerGram > 0) {
-          // ETF→g 비율 갱신 (etfPrice × ratio = KRX 금 1g 가격)
-          // 첫 사용 시 또는 비율 없을 때: 국제금 기준으로 초기 비율 추정
-          if (etfRatio <= 0) {
-            etfRatio = intlPerGram / etfPrice;
-            localStorage.setItem('gold_etf_ratio', etfRatio.toFixed(4));
-          }
-          const krxPerGram = etfPrice * etfRatio;
+          const krxPerGram = etfPrice * ETF_RATIO;
           const autoPremium = krxPerGram / intlPerGram;
           goldPremium = Math.round(autoPremium * 10000) / 10000;
           localStorage.setItem('gold_premium', goldPremium.toString());
-          console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(4), '| ETF:', etfPrice, '| ETF비율:', etfRatio.toFixed(4), '| KRX/g:', Math.round(krxPerGram), '| 국제금/g:', Math.round(intlPerGram));
+          console.log('[GOLD] 프리미엄 자동계산:', goldPremium.toFixed(4), '| ETF:', etfPrice, '× 7.145 = KRX/g:', Math.round(krxPerGram), '| 국제금/g:', Math.round(intlPerGram));
         }
       }
     } catch(e) { console.error('[GOLD] 411060 error:', e); }
