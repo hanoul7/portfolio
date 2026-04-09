@@ -131,6 +131,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   letter-spacing: -0.03em;
 }
 .card-value.sm { font-size: 18px; }
+.card-value.lg { font-size: 28px; }
 .card-value.up { color: var(--up); }
 .card-value.down { color: var(--down); }
 .card-sub {
@@ -138,6 +139,66 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   color: var(--text3);
   margin-top: 4px;
   font-family: var(--mono);
+}
+
+/* 금년 손익 강조 카드 */
+.year-card-hero {
+  border: 2px solid;
+  border-radius: var(--r2);
+  padding: 20px 18px;
+  position: relative;
+  overflow: hidden;
+}
+.year-card-hero .card-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.year-card-hero .card-value {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+.year-card-hero .card-sub {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+/* 계좌 그룹 박스 */
+.acct-group {
+  border-radius: 16px;
+  padding: 14px 12px;
+  margin-bottom: 16px;
+  border: 1.5px solid var(--border2);
+  transition: border-color 0.3s;
+}
+.acct-group-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 0 4px;
+}
+.acct-name {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  padding: 2px 10px;
+  border-radius: 8px;
+  display: inline-block;
+}
+.acct-year-pnl {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.acct-total-pnl {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 2px;
 }
 
 /* 시장 정보 그리드 */
@@ -278,7 +339,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 /* PC: 2단 레이아웃 */
 @media (min-width: 768px) {
   main { display: grid; grid-template-columns: 400px 1fr; gap: 0 24px; align-items: start; }
-  .summary-row, .status-bar, .market-grid { grid-column: 1 / 2; }
+  .summary-row, .status-bar, .market-grid, #account-summary-area { grid-column: 1 / 2; }
   .section-hd, .stock-list, .add-btn { grid-column: 2 / 3; }
   .section-hd { grid-row: 1; }
   .stock-list { grid-row: 2 / 10; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-content: start; }
@@ -1079,30 +1140,48 @@ function renderList() {
     const pct = stat.cost > 0 ? (g / stat.cost) * 100 : 0;
     const cls = g >= 0 ? 'up' : 'down';
     const ya = yearAccounts.find(a => a.name === key);
+
+    // 금년 손익 계산 및 그룹 배경색
     let yearHtml = '';
+    let groupBg = 'var(--bg2)';
+    let groupBorder = 'var(--border2)';
     if (ya) {
       const curPnl = stat.eval - stat.cost;
       const yg = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0);
       const yCls = yg >= 0 ? 'up' : 'down';
-      yearHtml = `<div style="font-size:13px;font-weight:700">
-        <span style="color:var(--text2)">금년</span>
-        <span class="${yCls}" style="margin-left:4px">${fmtSign(Math.round(yg))}원</span>
+      const yPct = stat.cost > 0 ? (yg / stat.cost) * 100 : 0;
+      const intensity = Math.min(Math.abs(yPct) / 30, 1);
+      const alpha = (0.03 + intensity * 0.10).toFixed(2);
+      groupBg = yg >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
+      groupBorder = yg >= 0 ? `rgba(16,185,129,${(0.15 + intensity * 0.25).toFixed(2)})` : `rgba(239,68,68,${(0.15 + intensity * 0.25).toFixed(2)})`;
+      let ySub = [`${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%`];
+      if (ya.realized) ySub.push('실현 ' + fmtSign(ya.realized) + '원');
+      yearHtml = `<div style="text-align:right">
+        <div style="font-size:10px;color:var(--text3);letter-spacing:0.05em;margin-bottom:2px">금년 손익</div>
+        <div class="acct-year-pnl ${yCls}">${fmtSign(Math.round(yg))}원</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:1px">${ySub.join(' · ')}</div>
       </div>`;
     }
-    const pnlLine = `<div style="font-size:11px;color:var(--text3)">
+    const pnlLine = `<div class="acct-total-pnl">
       손익 <span class="${cls}" style="font-weight:600">${fmtSign(Math.round(g))}원</span>
-      <span style="font-size:10px;margin-left:2px">(${fmtPct(pct)})</span>
-      <span style="margin-left:6px">평가 ${fmt(Math.round(stat.eval))}원</span>
+      <span style="margin-left:2px">(${fmtPct(pct)})</span>
+      <span style="margin-left:4px;color:var(--text3)">평가 ${fmt(Math.round(stat.eval))}원</span>
     </div>`;
 
+    // 계좌명 컬러 (해시 기반)
+    const nameColors = ['#6366f1','#8b5cf6','#0ea5e9','#14b8a6','#f59e0b','#ec4899','#2563eb'];
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) hash = key.charCodeAt(i) + ((hash << 5) - hash);
+    const nameClr = nameColors[Math.abs(hash) % nameColors.length];
+
     return `
-      <div style="border:2px solid color-mix(in srgb, var(--accent) 40%, var(--border));border-radius:14px;padding:14px 12px;margin-bottom:16px;background:var(--card)">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;padding:0 2px">
-          <div style="font-size:14px;font-weight:800;color:var(--accent);letter-spacing:-0.3px">${key || '미지정'}</div>
-          <div style="text-align:right">
-            ${yearHtml}
+      <div class="acct-group" style="background:${groupBg};border-color:${groupBorder}">
+        <div class="acct-group-header">
+          <div>
+            <div class="acct-name" style="color:${nameClr};background:${nameClr}18">${key || '미지정'}</div>
             ${pnlLine}
           </div>
+          ${yearHtml}
         </div>
         ${stocksHtml}
       </div>`;
@@ -1251,23 +1330,26 @@ function renderSummary() {
     if (yearAccounts.length > 0 && hasP) {
       const yearGain = (totalCurPnl - totalYearEndPnl) + totalRealized;
       const cls = yearGain >= 0 ? 'up' : 'down';
-      const yearPct = totalEval > 0 ? Math.abs(yearGain / totalEval) * 100 : 0;
-      const alpha = (0.03 + Math.min(yearPct / 50, 1) * 0.15).toFixed(2);
+      const totalAcctCost = Object.values(acctMap).reduce((s, a) => s + a.cost, 0);
+      const yearPctVal = totalAcctCost > 0 ? (yearGain / totalAcctCost) * 100 : 0;
+      const intensity = Math.min(Math.abs(yearPctVal) / 30, 1);
+      const alpha = (0.06 + intensity * 0.18).toFixed(2);
       const bg = yearGain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
-      let subParts = [];
+      const borderClr = yearGain >= 0 ? `rgba(16,185,129,${(0.2 + intensity * 0.3).toFixed(2)})` : `rgba(239,68,68,${(0.2 + intensity * 0.3).toFixed(2)})`;
+      let subParts = [`${yearPctVal >= 0 ? '+' : ''}${yearPctVal.toFixed(2)}%`];
       if (totalRealized !== 0) subParts.push('실현 ' + fmtSign(totalRealized) + '원');
       html = `<div class="summary-row" style="margin-bottom:14px">
-        <div class="card summary-wide" style="transition:background 0.3s;background:${bg}">
-          <div class="card-label">금년 손익</div>
-          <div class="card-value sm ${cls}">${fmtSign(Math.round(yearGain))}원</div>
-          <div class="card-sub">${subParts.join(' · ')}</div>
+        <div class="year-card-hero summary-wide" style="transition:background 0.3s,border-color 0.3s;background:${bg};border-color:${borderClr}">
+          <div class="card-label" style="color:${yearGain >= 0 ? 'var(--up)' : 'var(--down)'}">금년 손익</div>
+          <div class="card-value lg ${cls}">${fmtSign(Math.round(yearGain))}원</div>
+          <div class="card-sub" style="font-size:12px">${subParts.join(' · ')}</div>
         </div>
       </div>`;
     } else if (yearAccounts.length === 0) {
       html = `<div class="summary-row" style="margin-bottom:14px">
-        <div class="card summary-wide">
+        <div class="year-card-hero summary-wide" style="background:var(--bg2);border-color:var(--border)">
           <div class="card-label">금년 손익</div>
-          <div class="card-value sm">—</div>
+          <div class="card-value lg" style="color:var(--text3)">—</div>
           <div class="card-sub" style="font-size:10px">📊 에서 계좌 추가</div>
         </div>
       </div>`;
