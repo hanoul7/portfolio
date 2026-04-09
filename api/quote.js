@@ -4,8 +4,8 @@ export default async function handler(req, res) {
   const { symbol, market } = req.query;
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
-  // Yahoo Finance 심볼 변환: KR 000660 → 000660.KS
-  const yahooSymbol = market === 'KR' ? symbol + '.KS' : symbol;
+  // Yahoo Finance 심볼: KR은 프론트에서 .KS/.KQ 포함하여 전달
+  const yahooSymbol = (market === 'KR' && !symbol.includes('.')) ? symbol + '.KS' : symbol;
 
   const urls = [
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=1d`,

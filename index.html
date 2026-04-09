@@ -952,11 +952,24 @@ function isKrMarketOpen() {
   return (h > 9 || (h === 9 && m >= 0)) && (h < 15 || (h === 15 && m <= 30));
 }
 
-// ── 한국 주식 현재가 ──
+// ── 한국 주식 현재가 (Yahoo Finance primary, KIS fallback) ──
 async function fetchKR(ticker, tok) {
   const code = ticker.replace(/\D/g, '').padStart(6, '0');
   const cacheKey = 'kr_px_' + code;
-  // 장중: KIS API
+  // 1) Yahoo Finance (.KS → .KQ fallback)
+  for (const suffix of ['.KS', '.KQ']) {
+    try {
+      const r = await fetch(`/api/quote?symbol=${code}${suffix}&market=KR`);
+      const d = await r.json();
+      if (d.price > 0) {
+        const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
+        const result = { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: d.name || null, marketState: d.marketState };
+        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e) {}
+        return result;
+      }
+    } catch(e) {}
+  }
+  // 2) KIS API fallback (장중)
   if (tok) {
     try {
       const r = await fetch(
@@ -982,19 +995,10 @@ async function fetchKR(ticker, tok) {
       }
     } catch(e) {}
   }
-  // KIS 실패: 캐시된 KIS 가격 우선
+  // 3) 캐시 fallback
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey));
     if (cached && cached.priceKrw > 0) return cached;
-  } catch(e) {}
-  // 캐시도 없으면 Yahoo Finance fallback
-  try {
-    const r = await fetch(`/api/quote?symbol=${code}&market=KR`);
-    const d = await r.json();
-    if (d.price > 0) {
-      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
-      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: null, marketState: d.marketState };
-    }
   } catch(e) {}
   return null;
 }
@@ -1996,11 +2000,11 @@ function buildPieCSS(items, size) {
   });
   const pieStyle = `width:${size}px;height:${size}px;border-radius:50%;background:conic-gradient(${gradParts.join(',')});margin:0 auto;box-shadow:0 0 0 3px var(--bg2) inset`;
   let legendHtml = slices.map(sl => `
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
       <div style="width:10px;height:10px;border-radius:2px;background:${sl.color};flex-shrink:0"></div>
-      <span style="font-size:12px;color:var(--text1);flex:1">${sl.label}</span>
-      <span style="font-size:12px;font-family:var(--mono);color:var(--text2);font-weight:600">${sl.pct.toFixed(1)}%</span>
-      <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${fmtKr(sl.value)}</span>
+      <span style="font-size:12px;color:var(--text1)">${sl.label}</span>
+      <span style="font-size:12px;font-family:var(--mono);color:var(--text2);font-weight:600;margin-left:auto">${sl.pct.toFixed(1)}%</span>
+      <span style="font-size:10px;font-family:var(--mono);color:var(--text3);min-width:60px;text-align:right">${fmtKr(sl.value)}</span>
     </div>`).join('');
   return `<div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:center">
     <div style="${pieStyle}"></div>
@@ -2210,18 +2214,11 @@ async function loadDailyChart() {
     return;
   }
 
-  // 금년 손익 = (현재 평가액 변동) + 실현수익 보정
-  // 차트 기준: 금년 첫 거래일 평가액 대비 변동 + 실현수익 합산
+  // 금년 첫 거래일 대비 평가액 변동 (포트폴리오 가치 변화)
   const baseVal = dateMap[dates[0]];
-  const totalRealized = yearAccounts.reduce((s, a) => s + (a.realized || 0), 0);
-  // 총 매입원가
-  let totalCost = 0;
-  for (const s of pf) totalCost += s.market === 'US' ? s.avg * (s.avgFx || usdkrw) * s.qty : s.avg * s.qty;
-  const totalYearEndPnl = yearAccounts.reduce((s, a) => s + (a.yearEndPnl || 0), 0);
-
   const dataPoints = dates.map(date => ({
     date,
-    value: (dateMap[date] - totalCost - totalYearEndPnl) + totalRealized
+    value: dateMap[date] - baseVal
   }));
 
   chartEl.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 포트폴리오 손익 추이</div>` + buildLineChart(dataPoints, 200);
