@@ -1225,7 +1225,7 @@ function renderList() {
         <div class="acct-group-header">
           <div style="min-width:0;flex:1">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-              <div class="acct-name" style="color:${nameClr};background:${nameClr}18">${key || '미지정'}</div>
+              <div class="acct-name" style="color:${nameClr};background:${nameClr}18;cursor:pointer" onclick="event.stopPropagation();renameAcct('${key.replace(/'/g,"\\'")}')" title="계좌명 변경">${key || '미지정'}</div>
               <div style="width:50px;height:4px;border-radius:2px;background:var(--border);overflow:hidden;flex-shrink:0"><div style="height:100%;border-radius:2px;background:${nameClr};width:${Math.min(weight,100)}%;opacity:0.7"></div></div>
               <span style="font-size:10px;font-family:var(--mono);color:var(--text3);white-space:nowrap">${weight.toFixed(1)}%</span>
             </div>
@@ -1666,6 +1666,23 @@ function saveYearAccounts() {
     yearAccounts[i][el.dataset.field] = parseFloat(el.value) || 0;
   });
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+}
+
+function renameAcct(oldName) {
+  const newName = prompt(`계좌명 변경: "${oldName}"`, oldName);
+  if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+  const trimmed = newName.trim();
+  // 포트폴리오 종목 일괄 변경
+  for (const s of pf) {
+    if (s.acct === oldName) s.acct = trimmed;
+  }
+  save();
+  // yearAccounts도 변경
+  const ya = yearAccounts.find(a => a.name === oldName);
+  if (ya) ya.name = trimmed;
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+  syncYearAccounts();
+  render();
 }
 
 function toggleSecret() {
