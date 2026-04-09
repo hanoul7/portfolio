@@ -880,7 +880,8 @@ function isKrMarketOpen() {
 // ── 한국 주식 현재가 ──
 async function fetchKR(ticker, tok) {
   const code = ticker.replace(/\D/g, '').padStart(6, '0');
-  // KIS API (장중: 현재가, 장외: 종가)
+  const cacheKey = 'kr_px_' + code;
+  // 장중: KIS API
   if (tok) {
     try {
       const r = await fetch(
@@ -900,11 +901,18 @@ async function fetchKR(ticker, tok) {
         const price = parseInt(o.stck_prpr);
         const prev = parseInt(o.stck_sdpr || o.stck_prpr);
         const chg = ((price - prev) / prev) * 100;
-        return { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || ticker };
+        const result = { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || ticker };
+        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e) {}
+        return result;
       }
     } catch(e) {}
   }
-  // KIS 실패 시 Yahoo Finance fallback
+  // KIS 실패: 캐시된 KIS 가격 우선
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey));
+    if (cached && cached.priceKrw > 0) return cached;
+  } catch(e) {}
+  // 캐시도 없으면 Yahoo Finance fallback
   try {
     const r = await fetch(`/api/quote?symbol=${code}&market=KR`);
     const d = await r.json();
