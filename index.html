@@ -478,7 +478,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <div class="card-sub" id="s-cost">매입 —</div>
     </div>
   </div>
-  <div class="summary-row" style="margin-bottom:18px">
+  <div class="summary-row" style="margin-bottom:10px">
     <div class="card" id="pnl-card" style="transition:background 0.3s">
       <div class="card-label">총 손익</div>
       <div class="card-value sm" id="s-pnl">—</div>
@@ -488,6 +488,13 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <div class="card-label">오늘 손익</div>
       <div class="card-value sm" id="s-today">—</div>
       <div class="card-sub" id="s-time">—</div>
+    </div>
+  </div>
+  <div class="summary-row" style="margin-bottom:18px">
+    <div class="card summary-wide" id="year-card" style="transition:background 0.3s">
+      <div class="card-label">금년 손익 <span style="font-size:9px;font-weight:400;color:var(--text3)">(설정에서 기준값 입력)</span></div>
+      <div class="card-value sm" id="s-year">—</div>
+      <div class="card-sub" id="s-year-sub">—</div>
     </div>
   </div>
 
@@ -647,6 +654,17 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <label class="fl">KRX금 프리미엄 (예: 1.02 = +2%)</label>
       <input id="api-premium" type="number" step="0.01" placeholder="1.02" style="font-family:var(--mono);font-size:13px" />
     </div>
+    <div style="padding-top:16px;border-top:1px solid var(--border);margin-bottom:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">금년 수익률 기준</div>
+      <div class="ff" style="margin-bottom:10px">
+        <label class="fl">작년 말 평가금액 (원)</label>
+        <input id="api-year-end" type="number" placeholder="50000000" inputmode="numeric" style="font-family:var(--mono);font-size:13px" />
+      </div>
+      <div class="ff">
+        <label class="fl">금년 실현 수익금 (원) <span style="font-weight:400;font-size:10px;color:var(--text3)">매도 등 확정 손익</span></label>
+        <input id="api-year-realized" type="number" placeholder="0" inputmode="numeric" style="font-family:var(--mono);font-size:13px" />
+      </div>
+    </div>
     <div class="form-err" id="api-err"></div>
     <button class="btn-primary" onclick="saveApiKey()">저장 및 연결</button>
     <button class="btn-secondary" onclick="closeApiModal()">취소</button>
@@ -670,6 +688,8 @@ let appSecret = '';
 let refreshing = false;
 let xauUsd = 0;
 let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '1.02');
+let prevYearEndVal = parseFloat(localStorage.getItem('prev_year_end_val') || '0');
+let thisYearRealized = parseFloat(localStorage.getItem('this_year_realized') || '0');
 
 // ── 초기화 ──
 async function init() {
@@ -680,6 +700,8 @@ async function init() {
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
   document.getElementById('api-premium').value = goldPremium;
+  if (prevYearEndVal > 0) document.getElementById('api-year-end').value = prevYearEndVal;
+  if (thisYearRealized !== 0) document.getElementById('api-year-realized').value = thisYearRealized;
   render();
   fetchRate().then(() => fetchIndices());
   if (appKey && appSecret) {
@@ -1107,6 +1129,30 @@ function renderSummary() {
     const a = (0.03 + Math.min(todayPct / 5, 1) * 0.15).toFixed(2);
     todayCard.style.background = todayPnl >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
   }
+
+  // 금년 손익
+  const yearEl = document.getElementById('s-year');
+  const yearSub = document.getElementById('s-year-sub');
+  const yearCard = document.getElementById('year-card');
+  if (prevYearEndVal > 0 && hasP) {
+    const yearGain = (totalEval - prevYearEndVal) + thisYearRealized;
+    const yearPct = (yearGain / prevYearEndVal) * 100;
+    yearEl.textContent = fmtSign(Math.round(yearGain)) + '원';
+    yearEl.className = 'card-value sm ' + (yearGain >= 0 ? 'up' : 'down');
+    const parts = [];
+    parts.push('수익률 ' + fmtPct(yearPct));
+    if (thisYearRealized !== 0) parts.push('실현 ' + fmtSign(thisYearRealized) + '원');
+    yearSub.textContent = parts.join(' · ');
+    if (yearCard) {
+      const a = (0.03 + Math.min(Math.abs(yearPct) / 50, 1) * 0.15).toFixed(2);
+      yearCard.style.background = yearGain >= 0 ? `rgba(16,185,129,${a})` : `rgba(239,68,68,${a})`;
+    }
+  } else {
+    yearEl.textContent = '—';
+    yearEl.className = 'card-value sm';
+    yearSub.textContent = prevYearEndVal > 0 ? '' : '설정에서 작년 말 평가금액 입력';
+    if (yearCard) yearCard.style.background = '';
+  }
 }
 
 // ── 종목명 자동조회 ──
@@ -1315,6 +1361,12 @@ function saveApiKey() {
     goldPremium = prem;
     try { localStorage.setItem('gold_premium', prem.toString()); } catch(e) {}
   }
+  const ye = parseFloat(document.getElementById('api-year-end').value);
+  prevYearEndVal = ye > 0 ? ye : 0;
+  localStorage.setItem('prev_year_end_val', prevYearEndVal.toString());
+  const yr = parseFloat(document.getElementById('api-year-realized').value);
+  thisYearRealized = !isNaN(yr) ? yr : 0;
+  localStorage.setItem('this_year_realized', thisYearRealized.toString());
   appKey = k; appSecret = s;
   token = ''; tokenExp = 0;
   try {
@@ -1332,7 +1384,9 @@ function exportData() {
   const data = {
     appKey, appSecret,
     portfolio: pf,
-    goldPremium
+    goldPremium,
+    prevYearEndVal,
+    thisYearRealized
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1359,6 +1413,8 @@ function importData(e) {
       if (data.appSecret) { appSecret = data.appSecret; localStorage.setItem('kis_secret', appSecret); document.getElementById('api-secret').value = appSecret; }
       if (Array.isArray(data.portfolio)) { pf = data.portfolio; save(); }
       if (data.goldPremium > 0) { goldPremium = data.goldPremium; localStorage.setItem('gold_premium', goldPremium.toString()); document.getElementById('api-premium').value = goldPremium; }
+      if (data.prevYearEndVal > 0) { prevYearEndVal = data.prevYearEndVal; localStorage.setItem('prev_year_end_val', prevYearEndVal.toString()); document.getElementById('api-year-end').value = prevYearEndVal; }
+      if (data.thisYearRealized !== undefined) { thisYearRealized = data.thisYearRealized || 0; localStorage.setItem('this_year_realized', thisYearRealized.toString()); document.getElementById('api-year-realized').value = thisYearRealized; }
       token = ''; tokenExp = 0;
       localStorage.removeItem('kis_token');
       localStorage.removeItem('kis_token_exp');
