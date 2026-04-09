@@ -1093,7 +1093,7 @@ async function refreshAll() {
     const p = cache[cacheKey];
     if (p) {
       px[s.id] = p;
-      if (p.name && p.name !== s.ticker && !/\.\w{1,2}$/.test(p.name)) s.name = p.name;
+      if (p.name && p.name !== s.ticker) s.name = p.name;
       ok++;
     } else fail++;
   }
