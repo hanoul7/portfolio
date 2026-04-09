@@ -927,6 +927,22 @@ async function fetchKR(ticker, tok) {
 }
 
 // ── 미국 주식 현재가 (Yahoo Finance) ──
+async function fetchUnlisted(ticker) {
+  try {
+    const r = await fetch(`/api/unlisted?name=${encodeURIComponent(ticker)}`);
+    const d = await r.json();
+    if (d.price > 0) {
+      // 수기 가격도 갱신
+      for (const s of pf) {
+        if (s.market === 'MANUAL' && s.ticker === ticker) s.manualPrice = d.price;
+      }
+      save();
+      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.price, changeRatio: d.changeRate || 0, name: d.name || ticker };
+    }
+  } catch(e) { console.log('[unlisted] failed:', ticker, e.message); }
+  return null;
+}
+
 async function fetchUS(ticker) {
   try {
     const r = await fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}&market=US`);
@@ -1101,7 +1117,8 @@ async function refreshAll() {
   const jobs = Object.values(uniqueKeys);
   const cache = {};
 
-  // MANUAL 종목은 저장된 manualPrice 사용
+  // MANUAL 종목: 비상장 API 조회 시도, 실패 시 수기 가격
+  const manualJobs = jobs.filter(j => j.market === 'MANUAL');
   for (const s of pf) {
     if (s.market === 'MANUAL' && s.manualPrice > 0) {
       cache['MANUAL:' + s.ticker] = { priceKrw: s.manualPrice, priceLocal: s.manualPrice, prevClose: s.manualPrice, changeRatio: 0, name: s.name };
@@ -1113,10 +1130,11 @@ async function refreshAll() {
   const usJobs = jobs.filter(j => j.market === 'US');
   const goldJobs = jobs.filter(j => j.market === 'GOLD');
 
-  // US + GOLD는 완전 병렬
+  // US + GOLD + MANUAL 병렬
   const usGoldPromises = [
     ...usJobs.map(j => fetchUS(j.ticker).then(p => { cache['US:' + j.ticker] = p; })),
     ...goldJobs.map(j => fetchGold().then(p => { cache['GOLD:' + j.ticker] = p; })),
+    ...manualJobs.map(j => fetchUnlisted(j.ticker).then(p => { if (p) cache['MANUAL:' + j.ticker] = p; })),
   ];
 
   // KR은 2개씩 병렬 (KIS API 초당 제한 대응)
