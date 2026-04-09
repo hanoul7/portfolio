@@ -415,6 +415,9 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   padding-bottom: calc(24px + env(safe-area-inset-bottom));
   width: 100%;
   max-width: 680px;
+  max-height: 85vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   animation: slideUp 0.25s ease;
 }
 @keyframes slideUp {
@@ -709,10 +712,6 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <input type="checkbox" id="show-secret" onchange="toggleSecret()" style="width:16px;height:16px;accent-color:var(--accent)">
       <label for="show-secret" style="font-size:12px;color:var(--text3)">AppSecret 표시</label>
     </div>
-    <div class="ff" style="margin-bottom:16px">
-      <label class="fl">KRX금 프리미엄 (예: 1.02 = +2%)</label>
-      <input id="api-premium" type="number" step="0.01" placeholder="1.02" style="font-family:var(--mono);font-size:13px" />
-    </div>
     <div class="form-err" id="api-err"></div>
     <button class="btn-primary" onclick="saveApiKey()">저장 및 연결</button>
     <button class="btn-secondary" onclick="closeApiModal()">취소</button>
@@ -725,7 +724,19 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     <div class="modal-handle"></div>
     <div class="modal-title">금년 손익 계좌</div>
     <div style="margin-bottom:12px">
-      <div style="font-size:12px;color:var(--text3)">종목의 계좌명이 자동 반영됩니다. 작년말 손익액과 실현 수익금을 입력하세요.</div>
+      <div style="font-size:12px;color:var(--text3)">종목의 계좌명이 자동 반영됩니다.</div>
+    </div>
+    <div id="premium-fields" style="display:flex;gap:8px;margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--gold);font-weight:600;margin-bottom:2px">금 프리미엄</div>
+        <input type="number" id="ya-gold-premium" step="0.01" placeholder="1.02" inputmode="decimal" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+        <div style="font-size:9px;color:var(--text3);margin-top:2px">자동계산 · 1.02 = +2%</div>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:2px">은 프리미엄</div>
+        <input type="number" id="ya-silver-premium" step="0.01" placeholder="1.05" inputmode="decimal" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)" />
+        <div style="font-size:9px;color:var(--text3);margin-top:2px">수기입력 · 예: 1.05 = +5%</div>
+      </div>
     </div>
     <div id="year-accounts-list"></div>
     <div style="display:flex;gap:8px;margin-top:16px">
@@ -747,6 +758,7 @@ let appSecret = '';
 let refreshing = false;
 let xauUsd = 0;
 let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '1.02');
+let silverPremium = parseFloat(localStorage.getItem('silver_premium') || '1.0');
 let yearAccounts = JSON.parse(localStorage.getItem('year_accounts') || '[]');
 // 이전 단일 값은 평가금액 기준이라 손익액과 의미가 달라 마이그레이션하지 않음
 if (false) {
@@ -760,7 +772,6 @@ async function init() {
   loadToken();
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
-  document.getElementById('api-premium').value = goldPremium;
   render();
   fetchRate().then(() => fetchIndices());
   if (appKey && appSecret) {
@@ -933,10 +944,11 @@ async function fetchSilver() {
     const r = await fetch('/api/silver-price');
     const d = await r.json();
     if (d.price > 0 && usdkrw > 0) {
-      const perGram = d.price * usdkrw / TROY_OZ_TO_GRAM;
-      const prevPerGram = (d.prevClose || d.price) * usdkrw / TROY_OZ_TO_GRAM;
+      const perGram = d.price * usdkrw / TROY_OZ_TO_GRAM * silverPremium;
+      const prevPerGram = (d.prevClose || d.price) * usdkrw / TROY_OZ_TO_GRAM * silverPremium;
       const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
-      return { priceKrw: perGram, priceLocal: perGram, prevClose: prevPerGram, changeRatio: chg, name: '은현물(XAG)' };
+      const label = silverPremium !== 1 ? `은현물(XAG) P${(silverPremium*100-100).toFixed(1)}%` : '은현물(XAG)';
+      return { priceKrw: perGram, priceLocal: perGram, prevClose: prevPerGram, changeRatio: chg, name: label };
     }
   } catch(e) { console.log('[silver] error:', e.message); }
   return null;
@@ -1772,7 +1784,12 @@ function saveEdit() {
 
 function openApiModal() { document.getElementById('api-modal').classList.add('open'); }
 function closeApiModal() { document.getElementById('api-modal').classList.remove('open'); }
-function openYearModal() { document.getElementById('year-modal').classList.add('open'); renderYearAccounts(); }
+function openYearModal() {
+  document.getElementById('year-modal').classList.add('open');
+  document.getElementById('ya-gold-premium').value = goldPremium;
+  document.getElementById('ya-silver-premium').value = silverPremium;
+  renderYearAccounts();
+}
 function closeYearModal() { document.getElementById('year-modal').classList.remove('open'); }
 
 // ── 금년 손익 계좌 관리 ──
@@ -1840,6 +1857,11 @@ function saveYearAccounts() {
     yearAccounts[i][el.dataset.field] = parseFloat(el.value) || 0;
   });
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+  // 프리미엄 저장
+  const gp = parseFloat(document.getElementById('ya-gold-premium').value);
+  if (gp > 0) { goldPremium = gp; localStorage.setItem('gold_premium', gp.toString()); }
+  const sp = parseFloat(document.getElementById('ya-silver-premium').value);
+  if (sp > 0) { silverPremium = sp; localStorage.setItem('silver_premium', sp.toString()); }
 }
 
 function toggleAcctMore(id, btn, count) {
@@ -1879,11 +1901,6 @@ function saveApiKey() {
   if (!k || k.length < 20) { err.textContent = 'AppKey를 확인해주세요'; return; }
   if (!s || s.length < 50) { err.textContent = 'AppSecret을 확인해주세요'; return; }
   err.textContent = '';
-  const prem = parseFloat(document.getElementById('api-premium').value);
-  if (prem > 0) {
-    goldPremium = prem;
-    try { localStorage.setItem('gold_premium', prem.toString()); } catch(e) {}
-  }
   appKey = k; appSecret = s;
   token = ''; tokenExp = 0;
   try {
@@ -1928,7 +1945,7 @@ function importData(e) {
       if (data.appKey) { appKey = data.appKey; localStorage.setItem('kis_key', appKey); document.getElementById('api-key').value = appKey; }
       if (data.appSecret) { appSecret = data.appSecret; localStorage.setItem('kis_secret', appSecret); document.getElementById('api-secret').value = appSecret; }
       if (Array.isArray(data.portfolio)) { pf = data.portfolio; save(); }
-      if (data.goldPremium > 0) { goldPremium = data.goldPremium; localStorage.setItem('gold_premium', goldPremium.toString()); document.getElementById('api-premium').value = goldPremium; }
+      if (data.goldPremium > 0) { goldPremium = data.goldPremium; localStorage.setItem('gold_premium', goldPremium.toString()); }
       if (Array.isArray(data.yearAccounts)) { yearAccounts = data.yearAccounts; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       else if (data.prevYearEndVal > 0) { yearAccounts = [{ name: '계좌1', yearEndPnl: data.prevYearEndVal, realized: data.thisYearRealized || 0 }]; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       token = ''; tokenExp = 0;
