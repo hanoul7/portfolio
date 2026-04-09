@@ -145,7 +145,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 .year-card-hero {
   border: 2px solid;
   border-radius: var(--r2);
-  padding: 20px 18px;
+  padding: 16px 18px;
   position: relative;
   overflow: hidden;
 }
@@ -153,7 +153,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .year-card-hero .card-value {
   font-size: 28px;
@@ -168,8 +168,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 /* 계좌 그룹 박스 */
 .acct-group {
   border-radius: 16px;
-  padding: 14px 12px;
-  margin-bottom: 16px;
+  padding: 12px 12px;
+  margin-bottom: 10px;
   border: 1.5px solid var(--border2);
   transition: border-color 0.3s;
 }
@@ -177,7 +177,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   padding: 0 4px;
 }
 .acct-name {
@@ -208,7 +208,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 .market-card {
   background: var(--bg2);
@@ -548,6 +548,14 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
   <!-- 요약 카드 -->
   <div id="account-summary-area"></div>
+  <div class="summary-row" style="margin-bottom:6px">
+    <div class="card summary-wide" id="eval-card">
+      <div style="display:flex;align-items:baseline;justify-content:space-between">
+        <div class="card-label" style="margin-bottom:0">총 평가</div>
+        <div class="card-value sm" id="s-eval" style="font-size:20px">—</div>
+      </div>
+    </div>
+  </div>
   <div class="summary-row" style="margin-bottom:10px">
     <div class="card" id="pnl-card" style="transition:background 0.3s">
       <div class="card-label">총 손익</div>
@@ -602,7 +610,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   </div>
 
   <!-- 종목 리스트 -->
-  <div class="stock-header" id="stock-header-area"></div>
+  <div class="stock-header" id="stock-header-area" style="margin-bottom:8px"></div>
 
   <div class="stock-list" id="stock-list">
     <div class="empty-state">
@@ -1457,14 +1465,14 @@ function renderSummary() {
   const gain = totalEval - totalCost;
   const gainPct = totalCost > 0 ? (gain / totalCost) * 100 : 0;
 
+  // 총 평가 카드
+  const evalEl = document.getElementById('s-eval');
+  if (evalEl) evalEl.textContent = hasP ? fmtKr(totalEval) : '—';
+
   // 보유종목 헤더
   const hdr = document.getElementById('stock-header-area');
   if (hdr) {
-    const evalText = hasP ? fmtKr(totalEval) : '—';
-    hdr.innerHTML = `
-      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">보유 종목 <span style="color:var(--accent);font-family:var(--mono)">${pf.length}</span><span style="font-size:11px;color:var(--text3);font-weight:400">개</span></div>
-      <div style="font-size:20px;font-weight:800;color:var(--text);font-family:var(--mono);letter-spacing:-0.03em">${evalText}</div>
-    `;
+    hdr.innerHTML = `<div style="font-size:13px;font-weight:700;color:var(--text)">보유 종목 <span style="color:var(--accent);font-family:var(--mono)">${pf.length}</span><span style="font-size:11px;color:var(--text3);font-weight:400">개</span></div>`;
   }
 
   // 총 손익 카드
@@ -1561,11 +1569,11 @@ function renderSummary() {
         </div>
       </div>`;
       if (totalFee > 0 || totalTax > 0) {
-        html += `<div class="summary-row" style="margin-bottom:14px">
-          <div class="card summary-wide" style="background:var(--bg2);border:1px solid var(--border)">
+        html += `<div class="summary-row" style="margin-bottom:8px">
+          <div class="card summary-wide" style="background:var(--bg2);border:1px solid var(--border);padding:12px 18px">
             <div style="display:flex;align-items:baseline;justify-content:space-between">
               <div>
-                <div class="card-label">세후 실제 손익</div>
+                <div class="card-label" style="margin-bottom:2px">세후 실제 손익</div>
                 <div class="card-value sm ${netCls}">${fmtSign(Math.round(netGain))}원</div>
               </div>
               <div style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--text3)">
@@ -1576,10 +1584,10 @@ function renderSummary() {
           </div>
         </div>`;
       } else {
-        html += '<div style="margin-bottom:8px"></div>';
+        html += '<div style="margin-bottom:4px"></div>';
       }
     } else if (yearAccounts.length === 0) {
-      html = `<div class="summary-row" style="margin-bottom:14px">
+      html = `<div class="summary-row" style="margin-bottom:8px">
         <div class="year-card-hero summary-wide" style="background:var(--bg2);border-color:var(--border)">
           <div class="card-label">금년 손익</div>
           <div class="card-value lg" style="color:var(--text3)">—</div>
