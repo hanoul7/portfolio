@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "/api/kis/:path*",
+      "destination": "/api/kis-proxy?kisPath=:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",

@@ -5,13 +5,14 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // catch-all: req.query.path = ['uapi','domestic-stock','v1',...]
-  const pathSegments = req.query.path || [];
-  const queryString = Object.entries(req.query)
-    .filter(([k]) => k !== 'path')
+  // rewrite: /api/kis/oauth2/tokenP → /api/kis-proxy?kisPath=oauth2/tokenP
+  const kisPath = req.query.kisPath || '';
+  // kisPath 이외의 쿼리 파라미터 전달
+  const extra = Object.entries(req.query)
+    .filter(([k]) => k !== 'kisPath')
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join('&');
-  const target = `https://openapi.koreainvestment.com:9443/${pathSegments.join('/')}${queryString ? '?' + queryString : ''}`;
+  const target = `https://openapi.koreainvestment.com:9443/${kisPath}${extra ? '?' + extra : ''}`;
 
   const fwdHeaders = {};
   const passKeys = ['content-type', 'authorization', 'appkey', 'appsecret', 'tr_id', 'custtype'];
