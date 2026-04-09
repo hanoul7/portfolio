@@ -1329,7 +1329,7 @@ function renderList() {
       yearHtml = `<div style="text-align:right;white-space:nowrap">
         <div style="font-size:10px;color:var(--text3);margin-bottom:1px">금년 손익</div>
         <div class="acct-year-pnl ${yCls}">${fmtSign(Math.round(yg))}<span style="font-size:12px">원</span></div>
-        <div style="font-size:10px;color:var(--text3);margin-top:1px">${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%</div>
+        <div class="${yCls}" style="font-size:10px;font-family:var(--mono);margin-top:1px">(${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%)</div>
       </div>`;
     }
 
@@ -1353,7 +1353,7 @@ function renderList() {
             </div>
             <div class="acct-total-pnl" style="white-space:nowrap">
               손익 <span class="${cls}" style="font-weight:600">${fmtSign(Math.round(g))}</span><span class="${cls}" style="font-size:10px">원</span>
-              <span style="margin-left:2px">(${fmtPct(pct)})</span>
+              <span class="${cls}" style="margin-left:2px">(${fmtPct(pct)})</span>
             </div>
           </div>
           ${yearHtml}
@@ -1535,7 +1535,7 @@ function renderSummary() {
       const alpha = (0.06 + intensity * 0.18).toFixed(2);
       const bg = yearGain >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
       const borderClr = yearGain >= 0 ? `rgba(16,185,129,${(0.2 + intensity * 0.3).toFixed(2)})` : `rgba(239,68,68,${(0.2 + intensity * 0.3).toFixed(2)})`;
-      let subParts = [`${yearPctVal >= 0 ? '+' : ''}${yearPctVal.toFixed(2)}%`];
+      let subParts = [`(${yearPctVal >= 0 ? '+' : ''}${yearPctVal.toFixed(2)}%)`];
       // 세후 실제 손익 계산
       let totalFee = 0, totalTax = 0;
       for (const ya of yearAccounts) {
