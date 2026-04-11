@@ -1438,8 +1438,8 @@ function renderList() {
         return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:5px 10px;border-radius:6px;background:${bgClr};border:1px solid ${bdClr}">
           <span style="color:var(--text2);font-weight:600">${s.name || s.ticker}</span>
           <span style="font-family:var(--mono);display:flex;gap:8px;align-items:center">
-            <span class="${cls}">${priceStr} (${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)</span>
-            <span class="${cls}" style="font-weight:700">${fmtSign(dayChg)}원</span>
+            <span style="color:var(--${cls})">${priceStr} (${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)</span>
+            <span style="color:var(--${cls});font-weight:700">${fmtSign(dayChg)}원</span>
           </span>
         </div>`;
       }).join('') + '</div>';
