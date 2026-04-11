@@ -39,7 +39,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
-html { height: 100%; }
+html { height: 100%; overflow-x: hidden; }
 
 body {
   background: var(--bg);
@@ -47,6 +47,7 @@ body {
   font-family: var(--sans);
   min-height: 100%;
   padding-bottom: env(safe-area-inset-bottom);
+  overflow-x: hidden;
 }
 
 /* 헤더 */
@@ -69,11 +70,12 @@ header {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--text);
+  color: #e2e4e9;
+  flex-shrink: 0;
 }
 .logo em { color: var(--accent); font-style: normal; }
 
-.header-actions { display: flex; gap: 8px; align-items: center; }
+.header-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 
 .icon-btn {
   width: 36px; height: 36px;
@@ -360,9 +362,12 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   .empty-state { grid-column: 1 / -1; }
 }
 
-/* 모바일: 항상 삭제 버튼 표시 */
+/* 모바일 */
 @media (max-width: 480px) {
   .del-btn { opacity: 0.6; }
+  .icon-btn { width: 32px; height: 32px; font-size: 14px; border-radius: 8px; }
+  .header-actions { gap: 5px; }
+  header { padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top)); }
 }
 
 .loading-row {
@@ -578,11 +583,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
   <!-- 요약 카드 -->
   <div id="account-summary-area"></div>
-  <div class="summary-row" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:10px">
-    <div class="card" id="eval-card">
-      <div class="card-label">총 평가</div>
-      <div class="card-value sm" id="s-eval">—</div>
-    </div>
+  <div class="summary-row" style="grid-template-columns:1fr 1fr;margin-bottom:6px">
     <div class="card" id="pnl-card" style="transition:background 0.3s">
       <div class="card-label">총 손익</div>
       <div class="card-value sm" id="s-pnl">—</div>
@@ -592,6 +593,12 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <div class="card-label">오늘 손익</div>
       <div class="card-value sm" id="s-today">—</div>
       <div class="card-sub" id="s-time">—</div>
+    </div>
+  </div>
+  <div class="summary-row" style="margin-bottom:10px">
+    <div class="card summary-wide" id="eval-card" style="padding:10px 18px;display:flex;align-items:center;justify-content:space-between">
+      <div class="card-label" style="margin:0">평가 총액</div>
+      <div class="card-value sm" id="s-eval" style="margin:0;font-size:18px">—</div>
     </div>
   </div>
 
@@ -1407,20 +1414,36 @@ function renderList() {
       const eB = px[b.id] ? px[b.id].priceKrw * b.qty : 0;
       return eB - eA;
     });
-    const VISIBLE = 1;
-    const visibleHtml = stocks.slice(0, VISIBLE).map(s => renderStockCard(s, totalEval)).join('');
-    const hiddenStocks = stocks.slice(VISIBLE);
-    let stocksHtml = visibleHtml;
-    if (hiddenStocks.length > 0) {
-      const gid = 'acct-more-' + key.replace(/\W/g, '_');
-      const isExpanded = expandedAccts.has(gid);
-      stocksHtml += `<div id="${gid}" style="${isExpanded ? '' : 'display:none'}">${hiddenStocks.map(s => renderStockCard(s, totalEval)).join('')}</div>`;
-      stocksHtml += `<div style="text-align:center;padding:6px 0">
-        <button onclick="event.stopPropagation();toggleAcctMore('${gid}',this,${hiddenStocks.length})" style="font-size:11px;color:var(--text3);background:none;border:1px solid var(--border);border-radius:8px;padding:4px 14px;cursor:pointer">
-          ${isExpanded ? '접기' : `+${hiddenStocks.length}개 더보기`}
-        </button>
-      </div>`;
+    // 하이라이트 종목: 당일 변동 500만원 이상
+    const highlights = stocks.filter(s => {
+      const p = px[s.id];
+      if (!p || !p.prevClose || p.prevClose <= 0) return false;
+      const ev = p.priceKrw * s.qty;
+      const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
+      const dayChg = (p.priceKrw - prevKrw) / prevKrw * ev;
+      return Math.abs(dayChg) >= 5000000;
+    });
+    let highlightHtml = '';
+    if (highlights.length > 0) {
+      highlightHtml = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 2px">' + highlights.map(s => {
+        const p = px[s.id];
+        const ev = p.priceKrw * s.qty;
+        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
+        const dayChg = Math.round((p.priceKrw - prevKrw) / prevKrw * ev);
+        const cls = dayChg >= 0 ? 'up' : 'down';
+        return `<span style="font-size:10px;padding:3px 8px;border-radius:6px;background:${dayChg >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'};border:1px solid ${dayChg >= 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'};white-space:nowrap"><span style="color:var(--text2)">${s.name || s.ticker}</span> <span class="${cls}" style="font-family:var(--mono);font-weight:600">${fmtSign(dayChg)}원</span></span>`;
+      }).join('') + '</div>';
     }
+
+    const gid = 'acct-more-' + key.replace(/\W/g, '_');
+    const isExpanded = expandedAccts.has(gid);
+    let stocksHtml = highlightHtml;
+    stocksHtml += `<div id="${gid}" style="${isExpanded ? '' : 'display:none'}">${stocks.map(s => renderStockCard(s, totalEval)).join('')}</div>`;
+    stocksHtml += `<div style="text-align:center;padding:6px 0">
+      <button onclick="event.stopPropagation();toggleAcctMore('${gid}',this,${stocks.length})" style="font-size:11px;color:var(--text3);background:none;border:1px solid var(--border);border-radius:8px;padding:4px 14px;cursor:pointer">
+        ${isExpanded ? '접기' : `종목 ${stocks.length}개 보기`}
+      </button>
+    </div>`;
 
     if (!hasMultiAcct) return stocks.map(s => renderStockCard(s, totalEval)).join('');
 
@@ -1548,7 +1571,7 @@ function renderStockCard(s, totalEval) {
       : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
     priceHtml = `
       <div class="stock-right">
-        <div class="stock-price ${chgCls}">${fmt(p.priceKrw)}원${estLabel}${msLabel}</div>
+        <div class="stock-price ${chgCls}">${s.market === 'US' ? '$' + p.priceLocal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(p.priceKrw) + '원'}${estLabel}${msLabel}</div>
         <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
       </div>`;
 
@@ -2621,7 +2644,7 @@ function toggleAcctMore(id, btn, count) {
   if (!el) return;
   const hidden = el.style.display === 'none';
   el.style.display = hidden ? '' : 'none';
-  btn.textContent = hidden ? '접기' : `+${count}개 더보기`;
+  btn.textContent = hidden ? '접기' : `종목 ${count}개 보기`;
   if (hidden) expandedAccts.add(id); else expandedAccts.delete(id);
 }
 
@@ -2654,13 +2677,16 @@ function saveApiKey() {
   if (!k || k.length < 20) { err.textContent = 'AppKey를 확인해주세요'; return; }
   if (!s || s.length < 50) { err.textContent = 'AppSecret을 확인해주세요'; return; }
   err.textContent = '';
+  const keyChanged = (k !== appKey || s !== appSecret);
   appKey = k; appSecret = s;
-  token = ''; tokenExp = 0;
   try {
     localStorage.setItem('kis_key', k);
     localStorage.setItem('kis_secret', s);
-    localStorage.removeItem('kis_token');
-    localStorage.removeItem('kis_token_exp');
+    if (keyChanged) {
+      token = ''; tokenExp = 0;
+      localStorage.removeItem('kis_token');
+      localStorage.removeItem('kis_token_exp');
+    }
   } catch(e) {}
   closeApiModal();
   refreshAll();
