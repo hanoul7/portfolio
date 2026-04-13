@@ -839,17 +839,6 @@ async function init() {
     }
   }
   if (pfFixed) save();
-  // KR 종목: 이름이 티커/영문이면 KIS 캐시에서 한글명 복원
-  let nameFixed = false;
-  for (const s of pf) {
-    if (s.market === 'KR' && s.name && !/[가-힣]/.test(s.name)) {
-      try {
-        const cached = JSON.parse(localStorage.getItem('kr_px_' + s.ticker.replace('.KS','').replace('.KQ','')));
-        if (cached && cached.name && /[가-힣]/.test(cached.name)) { s.name = cached.name; nameFixed = true; }
-      } catch(e) {}
-    }
-  }
-  if (nameFixed) save();
   appKey = localStorage.getItem('kis_key') || '';
   appSecret = localStorage.getItem('kis_secret') || '';
   loadToken();
@@ -860,7 +849,26 @@ async function init() {
   if (appKey && appSecret) {
     setSt('loading', token ? '저장된 토큰 사용' : '토큰 발급 중...');
     const tok = await getToken();
-    if (tok) setSt('ok', 'KIS 연결됨');
+    if (tok) {
+      setSt('ok', 'KIS 연결됨');
+      // KR 종목: 한글명이 없으면 KIS API로 복원
+      const needFix = pf.filter(s => s.market === 'KR' && (!s.name || !/[가-힣]/.test(s.name)));
+      if (needFix.length > 0) {
+        let fixed = false;
+        for (const s of needFix) {
+          const code = s.ticker.replace(/\D/g,'').padStart(6,'0');
+          try {
+            const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
+              headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
+            });
+            const d = await r.json();
+            const name = d?.output?.prdt_abrv_name;
+            if (name && /[가-힣]/.test(name)) { s.name = name; fixed = true; }
+          } catch(e) {}
+        }
+        if (fixed) { save(); render(); }
+      }
+    }
     else setSt('loading', 'KIS 토큰 실패 — Yahoo로 조회');
   } else {
     setSt('', 'Yahoo Finance 모드 (KIS 키 미설정)');
