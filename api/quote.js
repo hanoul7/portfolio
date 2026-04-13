@@ -1,27 +1,9 @@
-// KST 9:00(UTC 00:00)에 가장 가까운 캔들 가격 찾기
-function findKst9amClose(timestamps, closes) {
-  if (!timestamps || !closes) return null;
-  const now = new Date();
-  // 오늘 KST 9시 = UTC 00:00
-  const todayUtc = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  const kstH = todayUtc.getHours();
-  // KST 9시 이전이면 전일 기준
-  if (kstH < 9) todayUtc.setDate(todayUtc.getDate() - 1);
-  // 주말이면 금요일로
-  while (todayUtc.getDay() === 0 || todayUtc.getDay() === 6) todayUtc.setDate(todayUtc.getDate() - 1);
-  const dateStr = todayUtc.getFullYear() + '-' +
-    String(todayUtc.getMonth() + 1).padStart(2, '0') + '-' +
-    String(todayUtc.getDate()).padStart(2, '0');
-  // KST 9:00 = UTC 00:00 of the same date
-  const targetUtc = Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000);
-
-  let bestIdx = -1, bestDiff = Infinity;
-  for (let i = 0; i < timestamps.length; i++) {
-    const diff = Math.abs(timestamps[i] - targetUtc);
-    if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+// 가장 최근 정규장 종가 찾기 (프리/포스트 제외 데이터에서 마지막 close)
+function findLatestRegularClose(closes) {
+  if (!closes) return null;
+  for (let i = closes.length - 1; i >= 0; i--) {
+    if (closes[i] != null && closes[i] > 0) return closes[i];
   }
-  // 30분(1800초) 이내 캔들만 유효
-  if (bestIdx >= 0 && bestDiff <= 1800 && closes[bestIdx] != null && closes[bestIdx] > 0) return closes[bestIdx];
   return null;
 }
 
@@ -70,12 +52,12 @@ export default async function handler(req, res) {
         }
         console.log(`[quote] ${symbol} (${market}): $${price} (regular: $${meta.regularMarketPrice}) | marketState: ${marketState}`);
 
-        // US 종목: KST 9시 기준가 조회 (5분봉 2일치)
+        // US 종목: 가장 최근 정규장 종가 조회 (프리/포스트 제외)
         let kst9amPrice = null;
         if (market === 'US') {
           const histUrls = [
-            `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=2d&includePrePost=true`,
-            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=2d&includePrePost=true`,
+            `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=2d`,
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=2d`,
           ];
           for (const hUrl of histUrls) {
             try {
@@ -84,11 +66,11 @@ export default async function handler(req, res) {
               });
               const hd = await hr.json();
               const hResult = hd?.chart?.result?.[0];
-              const found = findKst9amClose(hResult?.timestamp, hResult?.indicators?.quote?.[0]?.close);
+              const found = findLatestRegularClose(hResult?.indicators?.quote?.[0]?.close);
               if (found) { kst9amPrice = found; break; }
             } catch(e) {}
           }
-          console.log(`[quote] ${symbol} kst9amPrice: $${kst9amPrice}`);
+          console.log(`[quote] ${symbol} regularClose: $${kst9amPrice}`);
         }
 
         return res.json({
