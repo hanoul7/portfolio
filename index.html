@@ -1591,7 +1591,12 @@ function renderList() {
         const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
         return Math.round((p.priceKrw - prevKrw) * s.qty);
       };
-      return Math.abs(dayPnl(b)) - Math.abs(dayPnl(a));
+      const diff = Math.abs(dayPnl(b)) - Math.abs(dayPnl(a));
+      if (diff !== 0) return diff;
+      // 전일대비 같으면 비중(평가액)순
+      const eA = px[a.id] ? px[a.id].priceKrw * a.qty : 0;
+      const eB = px[b.id] ? px[b.id].priceKrw * b.qty : 0;
+      return eB - eA;
     });
     // 하이라이트 종목: 당일 변동 500만원 이상 또는 ±10% 이상
     const highlights = stocks.filter(s => {
