@@ -1079,12 +1079,14 @@ async function kisLookupName(market, ticker, tok) {
       } catch(e) {}
     }
   } else if (market === 'US') {
-    try {
-      const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/search-info?PDNO='+encodeURIComponent(ticker)+'&PRDT_TYPE_CD=512', { headers: { ...hdr, 'tr_id': 'CTPF1702R' } });
-      const d = await r.json();
-      const name = d?.output?.prdt_name || d?.output?.prdt_abrv_name;
-      if (name && /[가-힣]/.test(name)) return name;
-    } catch(e) {}
+    for (const ptype of ['512','513','514','515','516']) {
+      try {
+        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/search-info?PDNO='+encodeURIComponent(ticker)+'&PRDT_TYPE_CD='+ptype, { headers: { ...hdr, 'tr_id': 'CTPF1702R' } });
+        const d = await r.json();
+        const name = d?.output?.prdt_name || d?.output?.prdt_abrv_name;
+        if (name && /[가-힣]/.test(name)) return name;
+      } catch(e) {}
+    }
   }
   return null;
 }
