@@ -39,10 +39,10 @@ export default async function handler(req, res) {
           else if (tp.pre && now >= tp.pre.start && now <= tp.pre.end) marketState = 'PRE';
           else if (tp.post && now >= tp.post.start && now <= tp.post.end) marketState = 'POST';
         }
-        // 프리/포스트마켓: 캔들 데이터의 최신 가격 사용
+        // 정규장 외: 캔들 데이터의 최신 가격 사용 (포스트마켓/프리마켓/장마감)
         let price = meta.regularMarketPrice;
         const result = d?.chart?.result?.[0];
-        if ((marketState === 'PRE' || marketState === 'POST') && result?.timestamp?.length > 0) {
+        if (marketState !== 'REGULAR' && result?.timestamp?.length > 0) {
           const closes = result.indicators?.quote?.[0]?.close;
           if (closes) {
             for (let i = closes.length - 1; i >= 0; i--) {
