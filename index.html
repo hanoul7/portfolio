@@ -1718,7 +1718,7 @@ function renderStockCard(s, totalEval) {
       : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
     priceHtml = `
       <div class="stock-right">
-        <div class="stock-price ${dayPnlCls}">${fmtSign(dayPnl)}원${estLabel}${msLabel}</div>
+        <div class="stock-price ${dayPnlCls}">${fmtSign(dayPnl)}원 (${fmtPct(effectiveChg)})${estLabel}${msLabel}</div>
       </div>`;
 
     // 현재가 + 등락%
