@@ -1241,7 +1241,7 @@ async function fetchGold() {
   // 2) 411060(ACE KRX금현물) Yahoo로 조회 → 프리미엄 자동 계산
   let etfRatio = parseFloat(localStorage.getItem('gold_etf_ratio') || '0');
   try {
-    const r = await fetch('/api/quote?symbol=411060.KS&market=KR');
+    const r = await fetch('/api/quote?symbol=411060&market=KR');
     const d = await r.json();
     const etfPrice = d.price > 0 ? d.price : 0;
     if (etfPrice > 0 && intlPerGram > 0) {
