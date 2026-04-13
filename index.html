@@ -584,26 +584,26 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   <!-- 요약 카드 -->
   <div id="account-summary-area"></div>
   <div class="summary-row" style="grid-template-columns:1fr 1fr;margin-bottom:6px">
-    <div class="card" id="pnl-card" style="transition:background 0.3s">
+    <div class="card" id="pnl-card" style="transition:background 0.3s;cursor:pointer" onclick="openJournalModal()">
       <div class="card-label">총 손익</div>
       <div class="card-value sm" id="s-pnl">—</div>
       <div class="card-sub" id="s-pct">—</div>
     </div>
-    <div class="card" id="today-card" style="transition:background 0.3s">
+    <div class="card" id="today-card" style="transition:background 0.3s;cursor:pointer" onclick="showTodayDetail()">
       <div class="card-label">오늘 손익</div>
       <div class="card-value sm" id="s-today">—</div>
       <div class="card-sub" id="s-time">—</div>
     </div>
   </div>
   <div class="summary-row" style="margin-bottom:10px">
-    <div class="card summary-wide" id="eval-card" style="padding:10px 18px;display:flex;align-items:center;justify-content:space-between">
+    <div class="card summary-wide" id="eval-card" style="padding:10px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="openChartModal()">
       <div class="card-label" style="margin:0">평가 총액</div>
       <div class="card-value sm" id="s-eval" style="margin:0;font-size:18px">—</div>
     </div>
   </div>
 
   <!-- 상태 바 -->
-  <div class="status-bar">
+  <div class="status-bar" style="cursor:pointer" onclick="refreshAll()">
     <span class="st-label">갱신 <span class="st-val" id="update-time">—</span></span>
     <span id="status-txt" style="color:var(--text3);font-size:11px">API 키를 설정해주세요</span>
   </div>
@@ -798,6 +798,16 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   <div class="modal modal-wide">
     <div class="modal-handle"></div>
     <div id="journal-content"></div>
+  </div>
+</div>
+
+<!-- 오늘 손익 상세 모달 -->
+<div class="modal-overlay" id="today-detail-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">계좌별 전일 대비</div>
+    <div id="today-detail-content"></div>
+    <button class="btn-secondary" onclick="document.getElementById('today-detail-modal').classList.remove('open')" style="margin-top:12px">닫기</button>
   </div>
 </div>
 
@@ -1730,6 +1740,41 @@ function renderStockCard(s, totalEval) {
     </div>`;
 }
 
+function showTodayDetail() {
+  const groups = {};
+  for (const s of pf) {
+    const key = s.acct || '(미지정)';
+    if (!groups[key]) groups[key] = { dayChg: 0, eval: 0 };
+    const p = px[s.id];
+    if (p) {
+      groups[key].eval += p.priceKrw * s.qty;
+      if (p.prevClose > 0 && isTradingDay(s.market, p)) {
+        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
+        groups[key].dayChg += Math.round((p.priceKrw - prevKrw) * s.qty);
+      }
+    }
+  }
+  let total = 0;
+  let rows = Object.entries(groups).sort((a, b) => Math.abs(b[1].dayChg) - Math.abs(a[1].dayChg)).map(([name, stat]) => {
+    total += stat.dayChg;
+    const cls = stat.dayChg >= 0 ? 'up' : 'down';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;color:var(--text1)">${name}</span>
+      <span class="${cls}" style="font-size:13px;font-weight:700;font-family:var(--mono)">${fmtSign(stat.dayChg)}원</span>
+    </div>`;
+  }).join('');
+  const totalCls = total >= 0 ? 'up' : 'down';
+  const html = `<div style="padding:4px 0">
+    ${rows}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 0;margin-top:4px">
+      <span style="font-size:14px;font-weight:700;color:var(--text1)">합계</span>
+      <span class="${totalCls}" style="font-size:16px;font-weight:700;font-family:var(--mono)">${fmtSign(total)}원</span>
+    </div>
+  </div>`;
+  document.getElementById('today-detail-content').innerHTML = html;
+  document.getElementById('today-detail-modal').classList.add('open');
+}
+
 function renderSummary() {
   let totalCost = 0, totalEval = 0, todayPnl = 0, hasP = false, hasPrev = false;
   for (const s of pf) {
@@ -1824,7 +1869,7 @@ function renderSummary() {
       const netCls = netGain >= 0 ? 'up' : 'down';
 
       html = `<div class="summary-row" style="margin-bottom:6px">
-        <div class="year-card-hero summary-wide" style="transition:background 0.3s,border-color 0.3s;background:${bg};border-color:${borderClr}">
+        <div class="year-card-hero summary-wide" style="transition:background 0.3s,border-color 0.3s;background:${bg};border-color:${borderClr};cursor:pointer" onclick="openJournalModal()">
           <div style="display:flex;align-items:center;justify-content:space-between">
             <div>
               <div class="card-label" style="color:${yearGain >= 0 ? 'var(--up)' : 'var(--down)'}">금년 손익</div>
@@ -1839,7 +1884,7 @@ function renderSummary() {
       </div>`;
       if (totalFee > 0 || totalTax > 0) {
         html += `<div class="summary-row" style="margin-bottom:8px">
-          <div class="card summary-wide" style="background:var(--bg2);border:1px solid var(--border);padding:12px 18px">
+          <div class="card summary-wide" style="background:var(--bg2);border:1px solid var(--border);padding:12px 18px;cursor:pointer" onclick="openJournalModal()">
             <div style="display:flex;align-items:baseline;justify-content:space-between">
               <div>
                 <div class="card-label" style="margin-bottom:2px">세후 실제 손익</div>
@@ -1857,7 +1902,7 @@ function renderSummary() {
       }
     } else if (yearAccounts.length === 0) {
       html = `<div class="summary-row" style="margin-bottom:8px">
-        <div class="year-card-hero summary-wide" style="background:var(--bg2);border-color:var(--border)">
+        <div class="year-card-hero summary-wide" style="background:var(--bg2);border-color:var(--border);cursor:pointer" onclick="openJournalModal()">
           <div class="card-label">금년 손익</div>
           <div class="card-value lg" style="color:var(--text3)">—</div>
           <div class="card-sub" style="font-size:10px">📊 에서 계좌 추가</div>
@@ -2901,7 +2946,7 @@ function importData(e) {
 }
 
 // ── 모달 바깥 클릭으로 닫기 ──
-['add-modal','edit-modal','api-modal','year-modal','chart-modal','journal-modal'].forEach(id => {
+['add-modal','edit-modal','api-modal','year-modal','chart-modal','journal-modal','today-detail-modal'].forEach(id => {
   const el = document.getElementById(id);
   let downOnOverlay = false;
   el.addEventListener('mousedown', e => { downOnOverlay = e.target === el; });
@@ -2912,6 +2957,7 @@ function importData(e) {
       else if (id === 'year-modal') closeYearModal();
       else if (id === 'chart-modal') closeChartModal();
       else if (id === 'journal-modal') closeJournalModal();
+      else if (id === 'today-detail-modal') document.getElementById('today-detail-modal').classList.remove('open');
       else closeApiModal();
     }
   });
@@ -2919,7 +2965,8 @@ function importData(e) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('journal-modal').classList.contains('open')) closeJournalModal();
+    if (document.getElementById('today-detail-modal').classList.contains('open')) document.getElementById('today-detail-modal').classList.remove('open');
+    else if (document.getElementById('journal-modal').classList.contains('open')) closeJournalModal();
     else if (document.getElementById('chart-modal').classList.contains('open')) closeChartModal();
     else if (document.getElementById('year-modal').classList.contains('open')) closeYearModal();
     else if (document.getElementById('edit-modal').classList.contains('open')) closeEditModal();
