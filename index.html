@@ -857,14 +857,16 @@ async function init() {
         let fixed = false;
         for (const s of needFix) {
           const code = s.ticker.replace(/\D/g,'').padStart(6,'0');
-          try {
-            const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
-              headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
-            });
-            const d = await r.json();
-            const name = d?.output?.prdt_abrv_name;
-            if (name && /[가-힣]/.test(name)) { s.name = name; fixed = true; }
-          } catch(e) {}
+          for (const ptype of ['300','301','302']) {
+            try {
+              const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD='+ptype, {
+                headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
+              });
+              const d = await r.json();
+              const name = d?.output?.prdt_abrv_name;
+              if (name && /[가-힣]/.test(name)) { s.name = name; fixed = true; break; }
+            } catch(e) {}
+          }
         }
         if (fixed) { save(); render(); }
       }
@@ -1092,7 +1094,7 @@ async function fetchKR(ticker, tok) {
         const price = parseInt(o.stck_prpr);
         const prev = parseInt(o.stck_sdpr || o.stck_prpr);
         const chg = ((price - prev) / prev) * 100;
-        const result = { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || ticker };
+        const result = { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || null };
         try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e) {}
         return result;
       }
@@ -1853,17 +1855,19 @@ async function lookupName() {
     const code = tick.replace(/\D/g,'').padStart(6,'0');
     // 1) KIS API 우선 (한국명, 키 있을 때)
     if (appKey && appSecret) {
-      try {
-        const tok = await getToken();
-        if (tok) {
-          const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD=300', {
-            headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
-          });
-          const d = await r.json();
-          const o = d?.output;
-          if (o && o.prdt_abrv_name) name = o.prdt_abrv_name;
+      const tok = await getToken();
+      if (tok) {
+        for (const ptype of ['300','301','302']) {
+          try {
+            const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD='+ptype, {
+              headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
+            });
+            const d = await r.json();
+            const o = d?.output;
+            if (o && o.prdt_abrv_name) { name = o.prdt_abrv_name; break; }
+          } catch(e) {}
         }
-      } catch(e) {}
+      }
     }
     // 2) KIS 실패 시 Yahoo fallback
     if (!name) {
