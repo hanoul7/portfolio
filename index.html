@@ -1661,7 +1661,8 @@ function renderList() {
               <span style="font-size:10px;font-family:var(--mono);color:var(--text3);white-space:nowrap">${weight.toFixed(1)}%</span>
             </div>
             <div class="acct-total-pnl" style="white-space:nowrap">
-              <span style="color:var(--text3)">전일비</span> <span class="${stat.dayChg >= 0 ? 'up' : 'down'}" style="font-weight:600">${fmtSign(stat.dayChg)}원</span>
+              <span style="color:var(--text3)">평가</span> <span style="font-weight:600;color:var(--text1)">${fmt(stat.eval)}원</span>
+              <span style="color:var(--text3);margin-left:6px">전일비</span> <span class="${stat.dayChg >= 0 ? 'up' : 'down'}" style="font-weight:600">${fmtSign(stat.dayChg)}원</span>
             </div>
           </div>
           ${yearHtml}
