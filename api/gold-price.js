@@ -1,33 +1,89 @@
+// KST 15:30(UTC 06:30)에 가장 가까운 캔들 가격 찾기
+function findKstClose(timestamps, closes) {
+  if (!timestamps || !closes) return null;
+  const now = new Date();
+  // 전 거래일(평일) 찾기
+  const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  kst.setHours(15, 30, 0, 0);
+  // 오늘 KST 15:30 이전이면 어제 기준, 아니면 오늘 기준
+  const nowKst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  if (nowKst <= kst) kst.setDate(kst.getDate() - 1);
+  // 주말이면 금요일로
+  while (kst.getDay() === 0 || kst.getDay() === 6) kst.setDate(kst.getDate() - 1);
+  // KST 15:30을 UTC 타임스탬프로 변환 (KST = UTC+9)
+  const targetUtc = Math.floor(new Date(kst.toISOString().slice(0, 10) + 'T06:30:00Z').getTime() / 1000);
+
+  let bestIdx = -1, bestDiff = Infinity;
+  for (let i = 0; i < timestamps.length; i++) {
+    const diff = Math.abs(timestamps[i] - targetUtc);
+    if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+  }
+  // 30분(1800초) 이내 캔들만 유효
+  if (bestIdx >= 0 && bestDiff <= 1800 && closes[bestIdx] > 0) return closes[bestIdx];
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const sources = [
+  // 1) 현재가 조회 (기존 로직)
+  const priceSources = [
     { url: 'https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d', label: 'query2/GC=F' },
     { url: 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d', label: 'query1/GC=F' },
     { url: 'https://query2.finance.yahoo.com/v8/finance/chart/XAU=X?interval=1m&range=1d', label: 'query2/XAU=X' },
   ];
 
+  let price = 0, prevClose = 0, source = '';
   const errors = [];
 
-  for (const { url, label } of sources) {
+  for (const { url, label } of priceSources) {
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
       });
       const d = await r.json();
       const meta = d?.chart?.result?.[0]?.meta;
-      const price = meta?.regularMarketPrice;
-      const prevClose = meta?.chartPreviousClose || meta?.previousClose;
-      if (price > 0) {
+      const p = meta?.regularMarketPrice;
+      const pc = meta?.chartPreviousClose || meta?.previousClose;
+      if (p > 0) {
+        price = p;
+        prevClose = pc;
+        source = label;
         console.log(`[gold-price] OK from ${label}: $${price}`);
-        return res.json({ price, prevClose, source: label });
+        break;
       }
-      errors.push(`${label}: price=${price} (status ${r.status})`);
+      errors.push(`${label}: price=${p} (status ${r.status})`);
     } catch(e) {
       errors.push(`${label}: ${e.message}`);
     }
   }
 
-  console.log('[gold-price] all sources failed:', errors.join(' | '));
-  return res.status(500).json({ error: 'gold price unavailable', details: errors });
+  if (!price) {
+    console.log('[gold-price] all sources failed:', errors.join(' | '));
+    return res.status(500).json({ error: 'gold price unavailable', details: errors });
+  }
+
+  // 2) KST 15:30 기준 전일종가 조회 (5분봉 2일치)
+  let kstPrevClose = null;
+  const histSources = [
+    'https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=2d',
+    'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=2d',
+    'https://query2.finance.yahoo.com/v8/finance/chart/XAU=X?interval=5m&range=2d',
+  ];
+  for (const url of histSources) {
+    try {
+      const r = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
+      });
+      const d = await r.json();
+      const result = d?.chart?.result?.[0];
+      const timestamps = result?.timestamp;
+      const closes = result?.indicators?.quote?.[0]?.close;
+      const found = findKstClose(timestamps, closes);
+      if (found) { kstPrevClose = found; break; }
+    } catch(e) {}
+  }
+  console.log(`[gold-price] kstPrevClose: $${kstPrevClose}`);
+
+  return res.json({ price, prevClose, kstPrevClose, source });
 }

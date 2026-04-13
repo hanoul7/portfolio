@@ -1064,6 +1064,58 @@ async function getToken() {
   return null;
 }
 
+// ── KST 9시 기준 거래일 (미국/금/은 전일비 기준점) ──
+function getKstTradingDate() {
+  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  // 9시 이전이면 전일 거래일로 취급
+  if (kst.getHours() < 9) kst.setDate(kst.getDate() - 1);
+  return kst.getFullYear() + '-' + String(kst.getMonth() + 1).padStart(2, '0') + '-' + String(kst.getDate()).padStart(2, '0');
+}
+
+function loadKstBaseline() {
+  const today = getKstTradingDate();
+  const stored = localStorage.getItem('kst_baseline');
+  if (stored) {
+    try {
+      const obj = JSON.parse(stored);
+      if (obj.date === today) return obj.prices;
+    } catch(e) {}
+  }
+  return null;
+}
+
+function saveKstBaseline(prices) {
+  const today = getKstTradingDate();
+  localStorage.setItem('kst_baseline', JSON.stringify({ date: today, prices }));
+}
+
+// 미국 종목에 KST 9시 기준 prevClose 적용
+function applyKstBaseline() {
+  let baseline = loadKstBaseline() || {};
+  let dirty = false;
+
+  for (const s of pf) {
+    if (s.market !== 'US') continue;
+    const p = px[s.id];
+    if (!p) continue;
+    const bKey = 'US:' + s.ticker;
+
+    // 이 종목의 기준점이 아직 없으면 현재가(USD)를 기준점으로 저장
+    if (baseline[bKey] == null) {
+      baseline[bKey] = p.priceLocal;
+      dirty = true;
+    }
+
+    if (baseline[bKey] > 0) {
+      const basePrice = baseline[bKey];
+      p.prevClose = basePrice;
+      p.changeRatio = ((p.priceLocal - basePrice) / basePrice) * 100;
+    }
+  }
+
+  if (dirty) saveKstBaseline(baseline);
+}
+
 // ── 한국 장중 여부 (09:00~15:30 KST) ──
 function isKrMarketOpen() {
   const now = new Date();
@@ -1201,8 +1253,10 @@ async function fetchSilver() {
     const d = await r.json();
     if (d.price > 0 && usdkrw > 0) {
       const perGram = d.price * usdkrw / TROY_OZ_TO_GRAM * silverPremium;
-      const prevPerGram = (d.prevClose || d.price) * usdkrw / TROY_OZ_TO_GRAM * silverPremium;
-      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
+      // KST 15:30 기준 전일종가 우선, 없으면 Yahoo prevClose fallback
+      const prevUsd = d.kstPrevClose || d.prevClose || d.price;
+      const prevPerGram = prevUsd * usdkrw / TROY_OZ_TO_GRAM * silverPremium;
+      const chg = prevUsd ? ((d.price - prevUsd) / prevUsd) * 100 : 0;
       const label = silverPremium !== 1 ? `은현물(XAG) P${(silverPremium*100-100).toFixed(1)}%` : '은현물(XAG)';
       return { priceKrw: perGram, priceLocal: perGram, prevClose: prevPerGram, changeRatio: chg, name: label };
     }
@@ -1242,9 +1296,10 @@ async function fetchGold() {
     if (d.price > 0 && usdkrw > 0) {
       xauUsd = d.price;
       intlPerGram = xauUsd * usdkrw / TROY_OZ_TO_GRAM;
-      const prevClose = d.prevClose || xauUsd;
+      // KST 15:30 기준 전일종가 우선, 없으면 Yahoo prevClose fallback
+      const prevClose = d.kstPrevClose || d.prevClose || xauUsd;
       intlPrevPerGram = prevClose * usdkrw / TROY_OZ_TO_GRAM;
-      intlChg = d.prevClose ? ((xauUsd - prevClose) / prevClose) * 100 : 0;
+      intlChg = prevClose ? ((xauUsd - prevClose) / prevClose) * 100 : 0;
     }
   } catch(e) {}
 
@@ -1388,6 +1443,7 @@ async function refreshAll() {
       const p = cache[s.market + ':' + s.ticker];
       if (p && !px[s.id]) { px[s.id] = p; }
     }
+    applyKstBaseline();
     render();
   };
   const usGoldPromise = Promise.all([
@@ -1420,6 +1476,7 @@ async function refreshAll() {
       }
     } else fail++;
   }
+  applyKstBaseline();
   // KR/US 종목 중 한글명이 없으면 KIS로 보충 조회
   if (tok) {
     const needName = pf.filter(s => (s.market === 'KR' || s.market === 'US') && (!s.name || !/[가-힣]/.test(s.name)));
@@ -1465,6 +1522,7 @@ async function refreshNonKR() {
       const p = cache[s.market + ':' + s.ticker];
       if (p) px[s.id] = p;
     }
+    applyKstBaseline();
     const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
     document.getElementById('update-time').textContent = now;
     render();
@@ -1525,11 +1583,15 @@ function renderList() {
   const hasMultiAcct = groupKeys.length > 1 || (groupKeys.length === 1 && groupKeys[0] !== '');
 
   el.innerHTML = groupKeys.map(key => {
-    // 종목을 비중(평가액) 순으로 정렬
+    // 종목을 전일대비 손익 절대값 순으로 정렬
     const stocks = groups[key].slice().sort((a, b) => {
-      const eA = px[a.id] ? px[a.id].priceKrw * a.qty : 0;
-      const eB = px[b.id] ? px[b.id].priceKrw * b.qty : 0;
-      return eB - eA;
+      const dayPnl = (s) => {
+        const p = px[s.id];
+        if (!p || !p.prevClose || p.prevClose <= 0 || !isTradingDay(s.market, p)) return 0;
+        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
+        return Math.round((p.priceKrw - prevKrw) * s.qty);
+      };
+      return Math.abs(dayPnl(b)) - Math.abs(dayPnl(a));
     });
     // 하이라이트 종목: 당일 변동 500만원 이상 또는 ±10% 이상
     const highlights = stocks.filter(s => {
@@ -1681,7 +1743,6 @@ function renderStockCard(s, totalEval) {
     const gainPct = (gain / cost) * 100;
     const tradingToday = isTradingDay(s.market, p);
     const effectiveChg = tradingToday ? p.changeRatio : 0;
-    const chgCls = effectiveChg >= 0 ? 'up' : 'down';
     const gainCls = gain >= 0 ? 'up' : 'down';
     cardCls = gainCls;
     const intensity = Math.min(Math.abs(gainPct) / 50, 1);
@@ -1691,6 +1752,11 @@ function renderStockCard(s, totalEval) {
     const borderColor = gain >= 0 ? `rgba(16,185,129,${(step * 0.35).toFixed(2)})` : `rgba(239,68,68,${(step * 0.35).toFixed(2)})`;
     cardStyle = `background:${bgColor};border-color:${borderColor};`;
 
+    // 전일대비 손익액 계산
+    const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
+    const dayPnl = tradingToday && prevKrw > 0 ? Math.round((p.priceKrw - prevKrw) * s.qty) : 0;
+    const dayPnlCls = dayPnl >= 0 ? 'up' : 'down';
+
     const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>`
       : s.market === 'SILVER' ? `<span style="font-size:10px;color:#8a8a9a"> ${p.name || ''}</span>` : '';
     const ms = (p.marketState || '').toUpperCase();
@@ -1699,16 +1765,18 @@ function renderStockCard(s, totalEval) {
       : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
     priceHtml = `
       <div class="stock-right">
-        <div class="stock-price ${chgCls}">${s.market === 'US' ? '$' + p.priceLocal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(p.priceKrw) + '원'}${estLabel}${msLabel}</div>
-        <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(effectiveChg)}</div>
+        <div class="stock-price ${dayPnlCls}">${fmtSign(dayPnl)}원${estLabel}${msLabel}</div>
       </div>`;
 
+    // 현재가 + 등락%
+    const curPriceStr = s.market === 'US' ? '$' + p.priceLocal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(p.priceKrw) + '원';
+    const chgCls = effectiveChg >= 0 ? 'up' : 'down';
     const weight = totalEval > 0 ? (ev / totalEval * 100) : 0;
     pnlHtml = `
       <div class="stock-detail">
         <div class="detail-item">
-          <div class="detail-label">평가금액</div>
-          <div class="detail-val">${fmt(ev)}원</div>
+          <div class="detail-label">현재가</div>
+          <div class="detail-val ${chgCls}">${curPriceStr} ${p.estimated ? '' : '(' + fmtPct(effectiveChg) + ')'}</div>
         </div>
         <div class="detail-item">
           <div class="detail-label">손익</div>
@@ -1730,9 +1798,7 @@ function renderStockCard(s, totalEval) {
       <div class="stock-left">
         <div class="stock-name">${s.name} ${badge}</div>
         <div class="stock-meta">
-          <span>${s.ticker}</span>
-          <span>평단 ${s.market === 'US' ? '$' + s.avg.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(s.avg) + '원'}</span>
-          <span>${s.qty}${unit}</span>
+          <span>${p ? fmt(p.priceKrw * s.qty) + '원' : s.ticker}</span>
         </div>
       </div>
       ${priceHtml}
