@@ -1070,6 +1070,7 @@ async function kisLookupName(market, ticker, tok) {
   const hdr = { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'custtype': 'P' };
   if (market === 'KR') {
     const code = ticker.replace(/\D/g,'').padStart(6,'0');
+    let fallbackName = null;
     // 1) search-stock-info (장외에도 동작)
     for (const ptype of ['300','301','302']) {
       try {
@@ -1077,8 +1078,8 @@ async function kisLookupName(market, ticker, tok) {
         const d = await r.json();
         const o = d?.output;
         const name = o?.prdt_abrv_name || o?.prdt_name;
-        console.log('[kisName] KR CTPF1002R', code, ptype, 'name:', JSON.stringify(name), 'rt_cd:', d?.rt_cd, 'keys:', o ? Object.keys(o).join(',') : 'null');
         if (name && /[가-힣]/.test(name)) return name;
+        if (name && name.length > 1 && !fallbackName) fallbackName = name;
       } catch(e) {}
     }
     // 2) inquire-price (장중에 hts_kor_isnm 반환)
@@ -1090,22 +1091,20 @@ async function kisLookupName(market, ticker, tok) {
         if (name && /[가-힣]/.test(name)) return name;
       } catch(e) {}
     }
+    // 3) 한글명 없으면 KIS 영문 정식명이라도 사용 (KODEX 200, CJ 등)
+    if (fallbackName) return fallbackName;
   } else if (market === 'US') {
-    // search-info (주식/ETF)
     for (const ptype of ['512','513','514','515','516']) {
       try {
         const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/search-info?PDNO='+encodeURIComponent(ticker)+'&PRDT_TYPE_CD='+ptype, { headers: { ...hdr, 'tr_id': 'CTPF1702R' } });
         const d = await r.json();
         const o = d?.output;
-        const name = o?.prdt_name || o?.prdt_abrv_name || o?.prdt_eng_name;
-        console.log('[kisName] US CTPF1702R', ticker, ptype, 'rt_cd:', d?.rt_cd, 'keys:', o ? Object.keys(o).join(',') : 'null', 'name:', JSON.stringify(name));
+        const name = o?.prdt_name || o?.prdt_abrv_name;
         if (name && /[가-힣]/.test(name)) return name;
-        // 한글명 없어도 영문명이라도 반환 (기존 티커보다 나음)
         if (name && name.length > 1 && !/^\d+$/.test(name)) return name;
       } catch(e) {}
     }
   }
-  console.log('[kisName] FAILED', market, ticker);
   return null;
 }
 
