@@ -1074,6 +1074,25 @@ function isKrMarketOpen() {
   if (day === 0 || day === 6) return false;
   return (h > 9 || (h === 9 && m >= 0)) && (h < 15 || (h === 15 && m <= 30));
 }
+
+// ── 시장 상태 라벨 반환 ──
+function getMarketStateLabel(market, priceData) {
+  if (market === 'US') {
+    const ms = (priceData?.marketState || '').toUpperCase();
+    if (ms.includes('PRE')) return { text: '프리마켓', color: '#e67e22' };
+    if (ms.includes('POST')) return { text: '애프터마켓', color: '#9b59b6' };
+    if (ms.includes('REGULAR')) return { text: '장중', color: 'var(--up)' };
+    return { text: '장마감', color: 'var(--text3)' };
+  }
+  if (market === 'KR') {
+    if (isKrMarketOpen()) return { text: '장중', color: 'var(--up)' };
+    const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const day = kst.getDay();
+    if (day === 0 || day === 6) return { text: '휴장', color: 'var(--text3)' };
+    return { text: '장마감', color: 'var(--text3)' };
+  }
+  return null;
+}
 // ── 오늘 해당 시장이 개장했었는지 (전일비 표시 여부 판단) ──
 function isTradingDay(market, priceData) {
   const now = new Date();
@@ -1712,10 +1731,8 @@ function renderStockCard(s, totalEval) {
 
     const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>`
       : s.market === 'SILVER' ? `<span style="font-size:10px;color:#8a8a9a"> ${p.name || ''}</span>` : '';
-    const ms = (p.marketState || '').toUpperCase();
-    const msLabel = ms.includes('PRE') ? '<span style="font-size:9px;color:#e67e22"> 프리마켓</span>'
-      : ms.includes('POST') ? '<span style="font-size:9px;color:#9b59b6"> 애프터마켓</span>'
-      : ms === 'CLOSED' && s.market === 'US' ? '<span style="font-size:9px;color:var(--text3)"> 장마감</span>' : '';
+    const mState = getMarketStateLabel(s.market, p);
+    const msLabel = mState ? `<span style="font-size:9px;color:${mState.color}"> ${mState.text}</span>` : '';
     priceHtml = `
       <div class="stock-right">
         <div class="stock-price ${dayPnlCls}">${fmtSign(dayPnl)}원 (${fmtPct(effectiveChg)})${estLabel}${msLabel}</div>
@@ -1764,10 +1781,11 @@ function showTodayDetail() {
   const groups = {};
   for (const s of pf) {
     const key = s.acct || '(미지정)';
-    if (!groups[key]) groups[key] = { dayChg: 0, eval: 0 };
+    if (!groups[key]) groups[key] = { dayChg: 0, eval: 0, markets: new Set() };
     const p = px[s.id];
     if (p) {
       groups[key].eval += p.priceKrw * s.qty;
+      if (s.market === 'KR' || s.market === 'US') groups[key].markets.add(s.market);
       if (p.prevClose > 0 && isTradingDay(s.market, p)) {
         const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
         groups[key].dayChg += Math.round((p.priceKrw - prevKrw) * s.qty);
@@ -1778,8 +1796,16 @@ function showTodayDetail() {
   let rows = Object.entries(groups).sort((a, b) => Math.abs(b[1].dayChg) - Math.abs(a[1].dayChg)).map(([name, stat]) => {
     total += stat.dayChg;
     const cls = stat.dayChg >= 0 ? 'up' : 'down';
+    // 계좌에 포함된 시장의 장 상태 라벨
+    const stateLabels = [...stat.markets].map(m => {
+      const usPd = m === 'US' ? px[pf.find(s => s.market === 'US' && px[s.id])?.id] : null;
+      const st = getMarketStateLabel(m, usPd);
+      if (!st) return '';
+      const tag = m === 'KR' ? '국장' : '미장';
+      return `<span style="font-size:9px;color:${st.color};margin-left:4px">${tag} ${st.text}</span>`;
+    }).join('');
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
-      <span style="font-size:13px;color:var(--text1)">${name}</span>
+      <span style="font-size:13px;color:var(--text1)">${name}${stateLabels}</span>
       <span class="${cls}" style="font-size:13px;font-weight:700;font-family:var(--mono)">${fmtSign(stat.dayChg)}원</span>
     </div>`;
   }).join('');
