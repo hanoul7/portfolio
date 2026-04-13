@@ -1064,26 +1064,37 @@ function isKrMarketOpen() {
   return (h > 9 || (h === 9 && m >= 0)) && (h < 15 || (h === 15 && m <= 30));
 }
 
-// ── KIS 종목명 조회 (KR: 주식/ETF/ETN, US: 해외주식) ──
+// ── KIS 종목명 조회 (KR: 주식/ETF/ETN, US: 해외주식/ETF) ──
 async function kisLookupName(market, ticker, tok) {
   if (!tok) return null;
   const hdr = { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'custtype': 'P' };
   if (market === 'KR') {
     const code = ticker.replace(/\D/g,'').padStart(6,'0');
-    for (const ptype of ['300','301','302']) {
+    // 시세조회 API로 hts_kor_isnm 가져오기 (J:주식, ETF, ETN)
+    for (const mktDiv of ['J','ETF','ETN']) {
       try {
-        const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD='+ptype, { headers: { ...hdr, 'tr_id': 'CTPF1002R' } });
+        const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code='+mktDiv+'&fid_input_iscd='+code, { headers: { ...hdr, 'tr_id': 'FHKST01010100' } });
         const d = await r.json();
-        const name = d?.output?.prdt_abrv_name;
+        const name = d?.output?.hts_kor_isnm;
         if (name && /[가-힣]/.test(name)) return name;
       } catch(e) {}
     }
   } else if (market === 'US') {
+    // 해외주식 상품정보 조회
     for (const ptype of ['512','513','514','515','516']) {
       try {
         const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/search-info?PDNO='+encodeURIComponent(ticker)+'&PRDT_TYPE_CD='+ptype, { headers: { ...hdr, 'tr_id': 'CTPF1702R' } });
         const d = await r.json();
         const name = d?.output?.prdt_name || d?.output?.prdt_abrv_name;
+        if (name && /[가-힣]/.test(name)) return name;
+      } catch(e) {}
+    }
+    // fallback: 해외주식 현재가 API (prdt_name 포함)
+    for (const excd of ['NAS','NYS','AMS']) {
+      try {
+        const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD='+excd+'&SYMB='+encodeURIComponent(ticker), { headers: { ...hdr, 'tr_id': 'HHDFS00000300' } });
+        const d = await r.json();
+        const name = d?.output?.prdt_name;
         if (name && /[가-힣]/.test(name)) return name;
       } catch(e) {}
     }
@@ -1095,31 +1106,33 @@ async function kisLookupName(market, ticker, tok) {
 async function fetchKR(ticker, tok) {
   const code = ticker.replace(/\D/g, '').padStart(6, '0');
   const cacheKey = 'kr_px_' + code;
-  // 1) KIS API
+  // 1) KIS API (J:주식, ETF, ETN 순서로 시도)
   if (tok) {
-    try {
-      const r = await fetch(
-        `/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
-        { headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'authorization': `Bearer ${tok}`,
-          'appkey': appKey,
-          'appsecret': appSecret,
-          'tr_id': 'FHKST01010100',
-          'custtype': 'P'
-        }}
-      );
-      const d = await r.json();
-      const o = d?.output;
-      if (o && o.stck_prpr) {
-        const price = parseInt(o.stck_prpr);
-        const prev = parseInt(o.stck_sdpr || o.stck_prpr);
-        const chg = ((price - prev) / prev) * 100;
-        const result = { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || null };
-        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e) {}
-        return result;
-      }
-    } catch(e) {}
+    for (const mktDiv of ['J','ETF','ETN']) {
+      try {
+        const r = await fetch(
+          `/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=${mktDiv}&fid_input_iscd=${code}`,
+          { headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'authorization': `Bearer ${tok}`,
+            'appkey': appKey,
+            'appsecret': appSecret,
+            'tr_id': 'FHKST01010100',
+            'custtype': 'P'
+          }}
+        );
+        const d = await r.json();
+        const o = d?.output;
+        if (o && o.stck_prpr && parseInt(o.stck_prpr) > 0) {
+          const price = parseInt(o.stck_prpr);
+          const prev = parseInt(o.stck_sdpr || o.stck_prpr);
+          const chg = ((price - prev) / prev) * 100;
+          const result = { priceKrw: price, priceLocal: price, prevClose: prev, changeRatio: chg, name: o.hts_kor_isnm || null };
+          try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e) {}
+          return result;
+        }
+      } catch(e) {}
+    }
   }
   // 2) KIS 실패: 캐시된 KIS 가격 우선
   try {
