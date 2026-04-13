@@ -2850,6 +2850,7 @@ function exportData() {
     appKey, appSecret,
     portfolio: pf,
     goldPremium,
+    silverPremium,
     yearAccounts,
     journalLog,
     dailyPnl
@@ -2879,6 +2880,7 @@ function importData(e) {
       if (data.appSecret) { appSecret = data.appSecret; localStorage.setItem('kis_secret', appSecret); document.getElementById('api-secret').value = appSecret; }
       if (Array.isArray(data.portfolio)) { pf = data.portfolio; save(); }
       if (data.goldPremium > 0) { goldPremium = data.goldPremium; localStorage.setItem('gold_premium', goldPremium.toString()); }
+      if (data.silverPremium > 0) { silverPremium = data.silverPremium; localStorage.setItem('silver_premium', silverPremium.toString()); }
       if (Array.isArray(data.yearAccounts)) { yearAccounts = data.yearAccounts; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       else if (data.prevYearEndVal > 0) { yearAccounts = [{ name: '계좌1', yearEndPnl: data.prevYearEndVal, realized: data.thisYearRealized || 0 }]; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       if (Array.isArray(data.journalLog)) { journalLog = data.journalLog; saveJournal(); }
