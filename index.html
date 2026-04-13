@@ -1064,57 +1064,6 @@ async function getToken() {
   return null;
 }
 
-// ── KST 9시 기준 거래일 (미국/금/은 전일비 기준점) ──
-function getKstTradingDate() {
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  // 9시 이전이면 전일 거래일로 취급
-  if (kst.getHours() < 9) kst.setDate(kst.getDate() - 1);
-  return kst.getFullYear() + '-' + String(kst.getMonth() + 1).padStart(2, '0') + '-' + String(kst.getDate()).padStart(2, '0');
-}
-
-function loadKstBaseline() {
-  const today = getKstTradingDate();
-  const stored = localStorage.getItem('kst_baseline');
-  if (stored) {
-    try {
-      const obj = JSON.parse(stored);
-      if (obj.date === today) return obj.prices;
-    } catch(e) {}
-  }
-  return null;
-}
-
-function saveKstBaseline(prices) {
-  const today = getKstTradingDate();
-  localStorage.setItem('kst_baseline', JSON.stringify({ date: today, prices }));
-}
-
-// 미국 종목에 KST 9시 기준 prevClose 적용
-function applyKstBaseline() {
-  let baseline = loadKstBaseline() || {};
-  let dirty = false;
-
-  for (const s of pf) {
-    if (s.market !== 'US') continue;
-    const p = px[s.id];
-    if (!p) continue;
-    const bKey = 'US:' + s.ticker;
-
-    // 이 종목의 기준점이 아직 없으면 현재가(USD)를 기준점으로 저장
-    if (baseline[bKey] == null) {
-      baseline[bKey] = p.priceLocal;
-      dirty = true;
-    }
-
-    if (baseline[bKey] > 0) {
-      const basePrice = baseline[bKey];
-      p.prevClose = basePrice;
-      p.changeRatio = ((p.priceLocal - basePrice) / basePrice) * 100;
-    }
-  }
-
-  if (dirty) saveKstBaseline(baseline);
-}
 
 // ── 한국 장중 여부 (09:00~15:30 KST) ──
 function isKrMarketOpen() {
@@ -1270,11 +1219,13 @@ async function fetchUS(ticker) {
     const d = await r.json();
     console.log('[fetchUS]', ticker, '| marketState:', d.marketState, '| price:', d.price);
     if (d.price > 0) {
-      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
+      // KST 9시 기준가 우선, 없으면 Yahoo prevClose fallback
+      const basePrice = d.kst9amPrice || d.prevClose || d.price;
+      const chg = basePrice ? ((d.price - basePrice) / basePrice) * 100 : 0;
       return {
         priceKrw: d.price * usdkrw,
         priceLocal: d.price,
-        prevClose: d.prevClose || d.price,
+        prevClose: basePrice,
         changeRatio: chg,
         name: d.name || ticker,
         marketState: d.marketState
@@ -1443,7 +1394,6 @@ async function refreshAll() {
       const p = cache[s.market + ':' + s.ticker];
       if (p && !px[s.id]) { px[s.id] = p; }
     }
-    applyKstBaseline();
     render();
   };
   const usGoldPromise = Promise.all([
@@ -1476,7 +1426,6 @@ async function refreshAll() {
       }
     } else fail++;
   }
-  applyKstBaseline();
   // KR/US 종목 중 한글명이 없으면 KIS로 보충 조회
   if (tok) {
     const needName = pf.filter(s => (s.market === 'KR' || s.market === 'US') && (!s.name || !/[가-힣]/.test(s.name)));
@@ -1522,7 +1471,6 @@ async function refreshNonKR() {
       const p = cache[s.market + ':' + s.ticker];
       if (p) px[s.id] = p;
     }
-    applyKstBaseline();
     const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
     document.getElementById('update-time').textContent = now;
     render();
