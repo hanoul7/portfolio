@@ -1569,18 +1569,16 @@ function renderList() {
     const highlights = stocks.filter(s => {
       const p = px[s.id];
       if (!p || !p.prevClose || p.prevClose <= 0 || !isTradingDay(s.market, p)) return false;
-      const ev = p.priceKrw * s.qty;
       const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-      const dayChg = (p.priceKrw - prevKrw) / prevKrw * ev;
+      const dayChg = Math.round((p.priceKrw - prevKrw) * s.qty);
       return Math.abs(dayChg) >= 5000000 || Math.abs(p.changeRatio || 0) >= 10;
     });
     let highlightHtml = '';
     if (highlights.length > 0) {
       highlightHtml = '<div style="display:flex;flex-direction:column;gap:4px;margin:6px 0 2px">' + highlights.map(s => {
         const p = px[s.id];
-        const ev = p.priceKrw * s.qty;
         const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-        const dayChg = Math.round((p.priceKrw - prevKrw) / prevKrw * ev);
+        const dayChg = Math.round((p.priceKrw - prevKrw) * s.qty);
         const chgPct = p.changeRatio || 0;
         const cls = dayChg >= 0 ? 'up' : 'down';
         const bgClr = dayChg >= 0 ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
