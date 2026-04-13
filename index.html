@@ -1066,39 +1066,40 @@ function isKrMarketOpen() {
 
 // ── KIS 종목명 조회 (KR: 주식/ETF/ETN, US: 해외주식/ETF) ──
 async function kisLookupName(market, ticker, tok) {
-  if (!tok) return null;
+  if (!tok) { console.log('[kisLookupName] no token, skip', ticker); return null; }
   const hdr = { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'custtype': 'P' };
   if (market === 'KR') {
     const code = ticker.replace(/\D/g,'').padStart(6,'0');
-    // 시세조회 API로 hts_kor_isnm 가져오기 (J:주식, ETF, ETN)
     for (const mktDiv of ['J','ETF','ETN']) {
       try {
         const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code='+mktDiv+'&fid_input_iscd='+code, { headers: { ...hdr, 'tr_id': 'FHKST01010100' } });
         const d = await r.json();
+        console.log('[kisLookupName] KR', code, mktDiv, JSON.stringify(d?.output?.hts_kor_isnm), 'rt_cd:', d?.rt_cd, 'msg:', d?.msg1);
         const name = d?.output?.hts_kor_isnm;
         if (name && /[가-힣]/.test(name)) return name;
-      } catch(e) {}
+      } catch(e) { console.log('[kisLookupName] KR error', code, mktDiv, e.message); }
     }
   } else if (market === 'US') {
-    // 해외주식 상품정보 조회
     for (const ptype of ['512','513','514','515','516']) {
       try {
         const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/search-info?PDNO='+encodeURIComponent(ticker)+'&PRDT_TYPE_CD='+ptype, { headers: { ...hdr, 'tr_id': 'CTPF1702R' } });
         const d = await r.json();
+        console.log('[kisLookupName] US search-info', ticker, ptype, 'name:', JSON.stringify(d?.output?.prdt_name), 'abrv:', JSON.stringify(d?.output?.prdt_abrv_name), 'rt_cd:', d?.rt_cd);
         const name = d?.output?.prdt_name || d?.output?.prdt_abrv_name;
         if (name && /[가-힣]/.test(name)) return name;
-      } catch(e) {}
+      } catch(e) { console.log('[kisLookupName] US search-info error', ticker, ptype, e.message); }
     }
-    // fallback: 해외주식 현재가 API (prdt_name 포함)
     for (const excd of ['NAS','NYS','AMS']) {
       try {
         const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD='+excd+'&SYMB='+encodeURIComponent(ticker), { headers: { ...hdr, 'tr_id': 'HHDFS00000300' } });
         const d = await r.json();
+        console.log('[kisLookupName] US price', ticker, excd, 'name:', JSON.stringify(d?.output?.prdt_name), 'rt_cd:', d?.rt_cd);
         const name = d?.output?.prdt_name;
         if (name && /[가-힣]/.test(name)) return name;
-      } catch(e) {}
+      } catch(e) { console.log('[kisLookupName] US price error', ticker, excd, e.message); }
     }
   }
+  console.log('[kisLookupName] FAILED for', market, ticker);
   return null;
 }
 
