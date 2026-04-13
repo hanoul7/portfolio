@@ -1647,8 +1647,7 @@ function renderList() {
       groupBorder = yg >= 0 ? `rgba(16,185,129,${(0.15 + intensity * 0.25).toFixed(2)})` : `rgba(239,68,68,${(0.15 + intensity * 0.25).toFixed(2)})`;
       yearHtml = `
         <span style="color:var(--text3)">금년손익</span>
-        <span class="${yCls}" style="font-weight:600">${fmtSign(Math.round(yg))}원</span>
-        <span style="font-size:9px;color:var(--${yCls})">${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%</span>`;
+        <span class="${yCls}" style="font-weight:600">${fmtSign(Math.round(yg))}원 (${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%)</span>`;
     }
 
     // 비중
