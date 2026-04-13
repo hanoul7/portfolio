@@ -852,21 +852,15 @@ async function init() {
     if (tok) {
       setSt('ok', 'KIS 연결됨');
       // KR 종목: 한글명이 없으면 KIS API로 복원
-      const needFix = pf.filter(s => s.market === 'KR' && (!s.name || !/[가-힣]/.test(s.name)));
+      // KR/US 종목: 한글명이 없으면 KIS API로 복원
+      const needFix = pf.filter(s => (s.market === 'KR' || s.market === 'US') && (!s.name || !/[가-힣]/.test(s.name)));
       if (needFix.length > 0) {
         let fixed = false;
         for (const s of needFix) {
-          const code = s.ticker.replace(/\D/g,'').padStart(6,'0');
-          for (const ptype of ['300','301','302']) {
-            try {
-              const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD='+ptype, {
-                headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
-              });
-              const d = await r.json();
-              const name = d?.output?.prdt_abrv_name;
-              if (name && /[가-힣]/.test(name)) { s.name = name; fixed = true; break; }
-            } catch(e) {}
-          }
+          try {
+            const name = await kisLookupName(s.market, s.ticker, tok);
+            if (name && /[가-힣]/.test(name)) { s.name = name; fixed = true; }
+          } catch(e) {}
         }
         if (fixed) { save(); render(); }
       }
@@ -1070,7 +1064,32 @@ function isKrMarketOpen() {
   return (h > 9 || (h === 9 && m >= 0)) && (h < 15 || (h === 15 && m <= 30));
 }
 
-// ── 한국 주식 현재가 (KIS API primary) ──
+// ── KIS 종목명 조회 (KR: 주식/ETF/ETN, US: 해외주식) ──
+async function kisLookupName(market, ticker, tok) {
+  if (!tok) return null;
+  const hdr = { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'custtype': 'P' };
+  if (market === 'KR') {
+    const code = ticker.replace(/\D/g,'').padStart(6,'0');
+    for (const ptype of ['300','301','302']) {
+      try {
+        const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD='+ptype, { headers: { ...hdr, 'tr_id': 'CTPF1002R' } });
+        const d = await r.json();
+        const name = d?.output?.prdt_abrv_name;
+        if (name && /[가-힣]/.test(name)) return name;
+      } catch(e) {}
+    }
+  } else if (market === 'US') {
+    try {
+      const r = await fetch('/api/kis/uapi/overseas-price/v1/quotations/search-info?PDNO='+encodeURIComponent(ticker)+'&PRDT_TYPE_CD=512', { headers: { ...hdr, 'tr_id': 'CTPF1702R' } });
+      const d = await r.json();
+      const name = d?.output?.prdt_name || d?.output?.prdt_abrv_name;
+      if (name && /[가-힣]/.test(name)) return name;
+    } catch(e) {}
+  }
+  return null;
+}
+
+// ── ��국 주식 현재가 (KIS API primary) ──
 async function fetchKR(ticker, tok) {
   const code = ticker.replace(/\D/g, '').padStart(6, '0');
   const cacheKey = 'kr_px_' + code;
@@ -1334,18 +1353,26 @@ async function refreshAll() {
 
   await Promise.all([usGoldPromise, krPromise]);
 
-  let nameUpdated = false;
   for (const s of pf) {
     const p = cache[s.market + ':' + s.ticker];
     if (p) {
       px[s.id] = p;
       ok++;
-      // KIS API가 한글 종목명을 반환하면 영문명 덮어쓰기
+      // KIS API가 한글 종목명을 반환하��� 영문명 덮어쓰기
       if (s.market === 'KR' && p.name && p.name !== s.name && /[가-힣]/.test(p.name)) {
         s.name = p.name;
-        nameUpdated = true;
       }
     } else fail++;
+  }
+  // KR/US 종목 중 한글명이 없으면 KIS로 보충 조회
+  if (tok) {
+    const needName = pf.filter(s => (s.market === 'KR' || s.market === 'US') && (!s.name || !/[가-힣]/.test(s.name)));
+    for (const s of needName) {
+      try {
+        const name = await kisLookupName(s.market, s.ticker, tok);
+        if (name) s.name = name;
+      } catch(e) {}
+    }
   }
   save();
   refreshing = false;
@@ -1880,12 +1907,20 @@ async function lookupName() {
       }
     }
   } else {
-    try {
-      const r = await fetch('/api/stock-name?symbol=' + encodeURIComponent(tick));
-      const d = await r.json();
-      console.log('[lookupName] /api/stock-name', tick, ':', JSON.stringify(d));
-      if (d.name) name = d.name;
-    } catch(e) { console.error('[lookupName] stock-name error:', e); }
+    // 1) KIS API 우선 (한글명)
+    if (appKey && appSecret) {
+      const tok = await getToken();
+      const kisName = await kisLookupName('US', tick, tok);
+      if (kisName) name = kisName;
+    }
+    // 2) KIS 실패 시 Yahoo fallback
+    if (!name) {
+      try {
+        const r = await fetch('/api/stock-name?symbol=' + encodeURIComponent(tick));
+        const d = await r.json();
+        if (d.name) name = d.name;
+      } catch(e) {}
+    }
   }
   if (name && name.trim()) {
     nameEl.value = name.trim();
