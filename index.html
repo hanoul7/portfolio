@@ -1063,6 +1063,31 @@ function isKrMarketOpen() {
   if (day === 0 || day === 6) return false;
   return (h > 9 || (h === 9 && m >= 0)) && (h < 15 || (h === 15 && m <= 30));
 }
+// ── 오늘 해당 시장이 개장했었는지 (전일비 표시 여부 판단) ──
+function isTradingDay(market, priceData) {
+  const now = new Date();
+  if (market === 'KR') {
+    // KST 기준 평일이고 09:00 이후면 오늘 거래일
+    const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const day = kst.getDay();
+    if (day === 0 || day === 6) return false;
+    return kst.getHours() >= 9;
+  }
+  if (market === 'US') {
+    // marketState가 있으면 활용: REGULAR/PRE/POST → 오늘 거래 있음, CLOSED → 추가 판단
+    const ms = (priceData?.marketState || '').toUpperCase();
+    if (ms.includes('REGULAR') || ms.includes('PRE') || ms.includes('POST')) return true;
+    // CLOSED 상태: ET 기준으로 오늘이 평일이고 장이 한번 열렸다가 닫혔는지 판단
+    // ET 기준 16:00 이후~다음날 04:00 전이면 오늘 거래가 있었음 (정규장 종료 후)
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const day = et.getDay();
+    if (day === 0 || day === 6) return false;
+    // 평일이고 장 시작 시간(04:00 프리마켓) 이후면 오늘 거래일
+    return et.getHours() >= 4;
+  }
+  // GOLD, SILVER, MANUAL: 항상 전일비 표시
+  return true;
+}
 
 // ── KIS 종목명 조회 (KR: 주식/ETF/ETN, US: 해외주식/ETF) ──
 async function kisLookupName(market, ticker, tok) {
@@ -1476,7 +1501,7 @@ function renderList() {
       cost += sCost;
       const p = px[s.id];
       ev += p ? p.priceKrw * s.qty : sCost;
-      if (p && p.prevClose > 0) {
+      if (p && p.prevClose > 0 && isTradingDay(s.market, p)) {
         const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
         dayChg += Math.round((p.priceKrw - prevKrw) * s.qty);
       }
@@ -1499,7 +1524,7 @@ function renderList() {
     // 하이라이트 종목: 당일 변동 500만원 이상 또는 ±10% 이상
     const highlights = stocks.filter(s => {
       const p = px[s.id];
-      if (!p || !p.prevClose || p.prevClose <= 0) return false;
+      if (!p || !p.prevClose || p.prevClose <= 0 || !isTradingDay(s.market, p)) return false;
       const ev = p.priceKrw * s.qty;
       const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
       const dayChg = (p.priceKrw - prevKrw) / prevKrw * ev;
@@ -1644,7 +1669,9 @@ function renderStockCard(s, totalEval) {
     const ev = p.priceKrw * s.qty;
     const gain = ev - cost;
     const gainPct = (gain / cost) * 100;
-    const chgCls = p.changeRatio >= 0 ? 'up' : 'down';
+    const tradingToday = isTradingDay(s.market, p);
+    const effectiveChg = tradingToday ? p.changeRatio : 0;
+    const chgCls = effectiveChg >= 0 ? 'up' : 'down';
     const gainCls = gain >= 0 ? 'up' : 'down';
     cardCls = gainCls;
     const intensity = Math.min(Math.abs(gainPct) / 50, 1);
@@ -1663,7 +1690,7 @@ function renderStockCard(s, totalEval) {
     priceHtml = `
       <div class="stock-right">
         <div class="stock-price ${chgCls}">${s.market === 'US' ? '$' + p.priceLocal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : fmt(p.priceKrw) + '원'}${estLabel}${msLabel}</div>
-        <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(p.changeRatio)}</div>
+        <div class="stock-pnl ${chgCls}">${p.estimated ? '' : fmtPct(effectiveChg)}</div>
       </div>`;
 
     const weight = totalEval > 0 ? (ev / totalEval * 100) : 0;
@@ -1713,7 +1740,7 @@ function renderSummary() {
       hasP = true;
       const ev = p.priceKrw * s.qty;
       totalEval += ev;
-      if (p.prevClose > 0) {
+      if (p.prevClose > 0 && isTradingDay(s.market, p)) {
         hasPrev = true;
         const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
         todayPnl += (p.priceKrw - prevKrw) * s.qty;
