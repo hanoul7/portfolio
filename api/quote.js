@@ -8,8 +8,8 @@ export default async function handler(req, res) {
   const yahooSymbol = market === 'KR' ? symbol + '.KS' : symbol;
 
   const urls = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=1d`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=1d`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=1d&includePrePost=true`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=1d&includePrePost=true`,
   ];
 
   const errors = [];
@@ -21,7 +21,6 @@ export default async function handler(req, res) {
       const d = await r.json();
       const meta = d?.chart?.result?.[0]?.meta;
       if (meta?.regularMarketPrice) {
-        console.log(`[quote] ${symbol} (${market}): $${meta.regularMarketPrice} | meta keys: ${Object.keys(meta).join(',')}`);
         // currentTradingPeriod에서 마켓 상태 판별
         const tp = meta.currentTradingPeriod;
         let marketState = 'CLOSED';
@@ -31,9 +30,20 @@ export default async function handler(req, res) {
           else if (tp.pre && now >= tp.pre.start && now <= tp.pre.end) marketState = 'PRE';
           else if (tp.post && now >= tp.post.start && now <= tp.post.end) marketState = 'POST';
         }
-        console.log(`[quote] ${symbol} marketState: ${marketState}`);
+        // 프리/포스트마켓: 캔들 데이터의 최신 가격 사용
+        let price = meta.regularMarketPrice;
+        const result = d?.chart?.result?.[0];
+        if ((marketState === 'PRE' || marketState === 'POST') && result?.timestamp?.length > 0) {
+          const closes = result.indicators?.quote?.[0]?.close;
+          if (closes) {
+            for (let i = closes.length - 1; i >= 0; i--) {
+              if (closes[i] != null && closes[i] > 0) { price = closes[i]; break; }
+            }
+          }
+        }
+        console.log(`[quote] ${symbol} (${market}): $${price} (regular: $${meta.regularMarketPrice}) | marketState: ${marketState}`);
         return res.json({
-          price: meta.regularMarketPrice,
+          price,
           prevClose: meta.chartPreviousClose || meta.previousClose,
           name: meta.longName || meta.shortName || null,
           currency: meta.currency,
