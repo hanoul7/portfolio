@@ -1645,9 +1645,10 @@ function renderList() {
       const alpha = (0.03 + intensity * 0.10).toFixed(2);
       groupBg = yg >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
       groupBorder = yg >= 0 ? `rgba(16,185,129,${(0.15 + intensity * 0.25).toFixed(2)})` : `rgba(239,68,68,${(0.15 + intensity * 0.25).toFixed(2)})`;
-      yearHtml = `<div class="acct-stat-col">
+      yearHtml = `<div class="acct-stat-col" style="text-align:right">
         <span style="color:var(--text3)">금년손익</span>
-        <span class="${yCls}" style="font-weight:600">${fmtSign(Math.round(yg))}원 (${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%)</span>
+        <span class="${yCls}" style="font-weight:600">${fmtSign(Math.round(yg))}원</span>
+        <span style="font-size:9px;color:var(--${yCls})">${yPct >= 0 ? '+' : ''}${yPct.toFixed(1)}%</span>
       </div>`;
     }
 
@@ -1665,19 +1666,19 @@ function renderList() {
         <div class="acct-group-header" style="flex-direction:column;gap:6px">
           <div style="display:flex;align-items:center;gap:6px">
             <div class="acct-name" style="color:${nameClr};background:${nameClr}18;cursor:pointer" onclick="event.stopPropagation();renameAcct('${key.replace(/'/g,"\\'")}')" title="계좌명 변경">${key || '미지정'}</div>
-            <div style="width:50px;height:4px;border-radius:2px;background:var(--border);overflow:hidden;flex-shrink:0"><div style="height:100%;border-radius:2px;background:${nameClr};width:${Math.min(weight,100)}%;opacity:0.7"></div></div>
+            <div style="flex:1;height:4px;border-radius:2px;background:var(--border);overflow:hidden"><div style="height:100%;border-radius:2px;background:${nameClr};width:${Math.min(weight,100)}%;opacity:0.7"></div></div>
             <span style="font-size:10px;font-family:var(--mono);color:var(--text3);white-space:nowrap">${weight.toFixed(1)}%</span>
           </div>
-          <div class="acct-total-pnl" style="display:flex;gap:12px;flex-wrap:wrap">
-            <div class="acct-stat-col">
+          <div class="acct-total-pnl" style="display:flex;justify-content:space-between">
+            <div class="acct-stat-col" style="text-align:left">
               <span style="color:var(--text3)">평가</span>
               <span style="font-weight:600;color:var(--text1)">${fmt(stat.eval)}원</span>
             </div>
-            <div class="acct-stat-col">
+            <div class="acct-stat-col" style="text-align:center">
               <span style="color:var(--text3)">전일비</span>
               <span class="${stat.dayChg >= 0 ? 'up' : 'down'}" style="font-weight:600">${fmtSign(stat.dayChg)}원</span>
             </div>
-            ${yearHtml}
+            ${yearHtml || '<div class="acct-stat-col"></div>'}
           </div>
         </div>
         ${stocksHtml}
