@@ -1776,7 +1776,7 @@ function renderStockCard(s, totalEval) {
       <div class="stock-detail">
         <div class="detail-item">
           <div class="detail-label">현재가</div>
-          <div class="detail-val ${chgCls}">${curPriceStr} ${p.estimated ? '' : '(' + fmtPct(effectiveChg) + ')'}</div>
+          <div class="detail-val detail-gain ${chgCls}">${curPriceStr} ${p.estimated ? '' : '(' + fmtPct(effectiveChg) + ')'}</div>
         </div>
         <div class="detail-item">
           <div class="detail-label">손익</div>
@@ -1798,7 +1798,8 @@ function renderStockCard(s, totalEval) {
       <div class="stock-left">
         <div class="stock-name">${s.name} ${badge}</div>
         <div class="stock-meta">
-          <span>${p ? fmt(p.priceKrw * s.qty) + '원' : s.ticker}</span>
+          <span>${s.ticker}</span>
+          <span>${p ? '평가금액 ' + fmt(p.priceKrw * s.qty) + '원' : ''}</span>
         </div>
       </div>
       ${priceHtml}
