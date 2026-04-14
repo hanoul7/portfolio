@@ -2817,10 +2817,16 @@ function saveJournalEntry() {
   const descEl = document.getElementById('j-desc');
   let title = titleEl ? titleEl.value.trim() : '';
   const desc = descEl ? descEl.value.trim() : '';
-  if (!title) title = generateJournalTitle(validTrades);
-
   const now = new Date();
   const isEdit = !!journalEditing;
+
+  // 편집 중이고 제목이 원본 자동생성 제목과 동일하다면(=사용자가 수정 안 함) → 새 거래 기준으로 재생성 표시
+  let regenerateTitle = !title;
+  if (isEdit && journalEditing.originalEntry && title) {
+    const originalAutoTitle = generateJournalTitle(journalEditing.originalEntry.trades);
+    if (title === originalAutoTitle) regenerateTitle = true;
+  }
+
   const entry = {
     id: isEdit ? journalEditing.id : Date.now().toString(),
     date: isEdit ? journalEditing.date : now.toISOString().slice(0, 10),
@@ -2889,6 +2895,11 @@ function saveJournalEntry() {
   }
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
 
+  // 제목 재생성 (자동 생성이거나 원본 자동 제목 그대로인 경우)
+  if (regenerateTitle) {
+    entry.title = generateJournalTitle(entry.trades);
+  }
+
   if (isEdit) {
     const i = journalLog.findIndex(j => j.id === entry.id);
     if (i >= 0) journalLog[i] = entry;
@@ -2904,6 +2915,9 @@ function saveJournalEntry() {
     const todayPnlEntry = dailyPnl.find(d => d.date === today);
     if (todayPnlEntry) { todayPnlEntry.journalId = entry.id; saveDailyPnl(); }
   }
+
+  // 일별 스냅샷 갱신 (차트/일별 표 값 반영)
+  snapshotDailyPnl();
 
   journalView = 'list';
   journalTrades = [];
@@ -3053,6 +3067,8 @@ function deleteJournalEntry(entryId) {
     if (d.journalId === entryId) delete d.journalId;
   }
   saveDailyPnl();
+  // 오늘 값 재스냅샷
+  snapshotDailyPnl();
   render();
   renderJournalContent();
   if (appKey && appSecret) refreshAll();
@@ -3120,7 +3136,8 @@ function buildPieCSS(items, size) {
 
 function buildLineChart(dataPoints, height) {
   if (!dataPoints || dataPoints.length < 2) return '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">데이터 부족</div>';
-  const W = 600, H = height || 180, PADL = 55, PADR = 30, PADT = 10, PADB = 22;
+  const hasMarker = dataPoints.some(d => d.journalId);
+  const W = 600, H = (height || 180) + (hasMarker ? 40 : 0), PADL = 55, PADR = 30, PADT = hasMarker ? 46 : 10, PADB = 22;
   const vals = dataPoints.map(d => d.value);
   const minV = Math.min(...vals), maxV = Math.max(...vals);
   const range = maxV - minV || 1;
@@ -3164,18 +3181,21 @@ function buildLineChart(dataPoints, height) {
   const lastLabel = `<circle cx="${lastPt.x.toFixed(1)}" cy="${lastPt.y.toFixed(1)}" r="3.5" fill="${color}" />
     <text x="${lastPt.x.toFixed(1)}" y="${lastPt.y.toFixed(1) - 8}" text-anchor="end" fill="${color}" font-size="11" font-weight="700" font-family="var(--mono)">${fmtSign(Math.round(lastPt.value))}원</text>`;
 
-  // 포트폴리오 변경일 마커
+  // 포트폴리오 변경일 마커 (회전된 라벨 + 전체 텍스트 툴팁)
   let markers = '';
+  const escapeXml = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
   points.forEach(p => {
     if (p.journalId) {
       const j = journalLog.find(x => x.id === p.journalId);
       if (j) {
         const totalRealized = j.trades.reduce((s, t) => s + (t.realized || 0), 0);
         const rText = totalRealized ? ` (${fmtSign(totalRealized)})` : '';
-        const title = (j.title || '').slice(0, 20);
-        markers += `<line x1="${p.x.toFixed(1)}" y1="${PADT}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1) - 4}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3,2" />`;
-        markers += `<text x="${p.x.toFixed(1)}" y="${PADT - 1}" text-anchor="middle" fill="var(--accent)" font-size="7" font-family="var(--mono)">${title}${rText}</text>`;
-        markers += `<polygon points="${p.x.toFixed(1)},${p.y.toFixed(1) - 4} ${(p.x - 3).toFixed(1)},${p.y.toFixed(1) - 10} ${(p.x + 3).toFixed(1)},${p.y.toFixed(1) - 10}" fill="var(--accent)" />`;
+        const fullTitle = (j.title || '') + rText;
+        const shown = fullTitle.length > 18 ? fullTitle.slice(0, 17) + '…' : fullTitle;
+        const tx = p.x.toFixed(1), ty = (PADT - 4).toFixed(1);
+        markers += `<line x1="${tx}" y1="${PADT}" x2="${tx}" y2="${p.y.toFixed(1) - 4}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3,2" />`;
+        markers += `<g transform="translate(${tx},${ty}) rotate(-35)"><text text-anchor="start" fill="var(--accent)" font-size="8" font-family="var(--mono)"><title>${escapeXml(fullTitle)}</title>${escapeXml(shown)}</text></g>`;
+        markers += `<polygon points="${tx},${p.y.toFixed(1) - 4} ${(p.x - 3).toFixed(1)},${p.y.toFixed(1) - 10} ${(p.x + 3).toFixed(1)},${p.y.toFixed(1) - 10}" fill="var(--accent)" />`;
       }
     }
   });
