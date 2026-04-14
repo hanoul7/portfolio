@@ -1,12 +1,3 @@
-// 가장 최근 정규장 종가 찾기 (프리/포스트 제외 데이터에서 마지막 close)
-function findLatestRegularClose(closes) {
-  if (!closes) return null;
-  for (let i = closes.length - 1; i >= 0; i--) {
-    if (closes[i] != null && closes[i] > 0) return closes[i];
-  }
-  return null;
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -52,25 +43,17 @@ export default async function handler(req, res) {
         }
         console.log(`[quote] ${symbol} (${market}): $${price} (regular: $${meta.regularMarketPrice}) | marketState: ${marketState}`);
 
-        // US 종목: 가장 최근 정규장 종가 조회 (프리/포스트 제외)
+        // US 종목: "가장 최근 완료된 정규장 종가" (KST 9시 baseline 용)
+        // - REGULAR 중: 어제 종가 (chartPreviousClose)
+        // - PRE/POST/CLOSED: regularMarketPrice (= 해당 시점의 최근 정규장 종가)
         let kst9amPrice = null;
         if (market === 'US') {
-          const histUrls = [
-            `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=2d`,
-            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=2d`,
-          ];
-          for (const hUrl of histUrls) {
-            try {
-              const hr = await fetch(hUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
-              });
-              const hd = await hr.json();
-              const hResult = hd?.chart?.result?.[0];
-              const found = findLatestRegularClose(hResult?.indicators?.quote?.[0]?.close);
-              if (found) { kst9amPrice = found; break; }
-            } catch(e) {}
+          if (marketState === 'REGULAR') {
+            kst9amPrice = meta.chartPreviousClose || meta.previousClose || null;
+          } else {
+            kst9amPrice = meta.regularMarketPrice || null;
           }
-          console.log(`[quote] ${symbol} regularClose: $${kst9amPrice}`);
+          console.log(`[quote] ${symbol} kst9amPrice: $${kst9amPrice} (state: ${marketState})`);
         }
 
         return res.json({
