@@ -1879,7 +1879,7 @@ function showTodayDetail() {
   const groups = {};
   for (const s of pf) {
     const key = s.acct || '(미지정)';
-    if (!groups[key]) groups[key] = { dayChg: 0, eval: 0, markets: new Set() };
+    if (!groups[key]) groups[key] = { dayChg: 0, eval: 0, realized: 0, markets: new Set() };
     const p = px[s.id];
     if (p) {
       groups[key].eval += p.priceKrw * s.qty;
@@ -1890,10 +1890,25 @@ function showTodayDetail() {
       }
     }
   }
+  // 금일 실현손익 집계
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let totalRealized = 0;
+  for (const j of journalLog) {
+    if (j.date !== todayStr) continue;
+    for (const t of j.trades) {
+      if (t.type !== 'sell' || !t.realized) continue;
+      const key = t.acct || '(미지정)';
+      if (!groups[key]) groups[key] = { dayChg: 0, eval: 0, realized: 0, markets: new Set() };
+      groups[key].realized += t.realized;
+      totalRealized += t.realized;
+    }
+  }
   let total = 0;
-  let rows = Object.entries(groups).sort((a, b) => Math.abs(b[1].dayChg) - Math.abs(a[1].dayChg)).map(([name, stat]) => {
+  let rows = Object.entries(groups).sort((a, b) => Math.abs(b[1].dayChg + b[1].realized) - Math.abs(a[1].dayChg + a[1].realized)).map(([name, stat]) => {
     total += stat.dayChg;
     const cls = stat.dayChg >= 0 ? 'up' : 'down';
+    const rCls = stat.realized >= 0 ? 'up' : 'down';
+    const realizedRow = stat.realized ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">금일 실현 <span class="${rCls}" style="font-family:var(--mono);font-weight:600">${fmtSign(stat.realized)}원</span></div>` : '';
     // 계좌에 포함된 시장의 장 상태 라벨
     const stateLabels = [...stat.markets].map(m => {
       const usPd = m === 'US' ? px[pf.find(s => s.market === 'US' && px[s.id])?.id] : null;
@@ -1902,12 +1917,20 @@ function showTodayDetail() {
       const tag = m === 'KR' ? '국장' : '미장';
       return `<span style="font-size:9px;color:${st.color};margin-left:4px">${tag} ${st.text}</span>`;
     }).join('');
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
-      <span style="font-size:13px;color:var(--text1)">${name}${stateLabels}</span>
-      <span class="${cls}" style="font-size:13px;font-weight:700;font-family:var(--mono)">${fmtSign(stat.dayChg)}원</span>
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:var(--text1)">${name}${stateLabels}</span>
+        <span class="${cls}" style="font-size:13px;font-weight:700;font-family:var(--mono)">${fmtSign(stat.dayChg)}원</span>
+      </div>
+      ${realizedRow}
     </div>`;
   }).join('');
   const totalCls = total >= 0 ? 'up' : 'down';
+  const realizedTotalCls = totalRealized >= 0 ? 'up' : 'down';
+  const realizedTotalRow = totalRealized ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px dashed var(--border);margin-top:6px">
+      <span style="font-size:12px;color:var(--text2)">금일 실현 손익 합계</span>
+      <span class="${realizedTotalCls}" style="font-size:13px;font-weight:700;font-family:var(--mono)">${fmtSign(totalRealized)}원</span>
+    </div>` : '';
   const btnStyle = (active) => `padding:5px 12px;border-radius:14px;font-size:11px;border:1px solid var(--border);background:${active ? 'var(--accent)' : 'var(--bg)'};color:${active ? '#fff' : 'var(--text2)'};cursor:pointer;font-weight:${active ? 600 : 400}`;
   const toggleHtml = `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
@@ -1917,8 +1940,9 @@ function showTodayDetail() {
     </div>`;
   const html = `${toggleHtml}<div style="padding:4px 0">
     ${rows}
+    ${realizedTotalRow}
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 0;margin-top:4px">
-      <span style="font-size:14px;font-weight:700;color:var(--text1)">합계</span>
+      <span style="font-size:14px;font-weight:700;color:var(--text1)">전일 대비 합계</span>
       <span class="${totalCls}" style="font-size:16px;font-weight:700;font-family:var(--mono)">${fmtSign(total)}원</span>
     </div>
   </div>`;
@@ -2442,12 +2466,32 @@ function closeChartModal() { document.getElementById('chart-modal').classList.re
 let journalView = 'list'; // 'list' | 'trade'
 let journalTrades = []; // 거래 입력 중 임시 데이터
 let journalPreselect = null; // 종목카드에서 넘어올 때 {acct, ticker, market}
+let journalEditing = null; // 수정 중인 entry {id, title, desc, date, time} 또는 null
 
 function openJournalModal(preselect) {
-  journalPreselect = preselect || null;
+  journalPreselect = null;
   if (preselect) {
     journalView = 'trade';
     journalTrades = [];
+    const held = pf.find(s => s.ticker === preselect.ticker && (s.acct || '') === (preselect.acct || ''));
+    const p = held ? px[held.id] : null;
+    let curPrice = 0;
+    if (p) {
+      curPrice = preselect.market === 'US'
+        ? +(+p.priceLocal).toFixed(2)
+        : Math.round(p.priceKrw);
+    }
+    journalTrades.push({
+      acct: preselect.acct || '',
+      ticker: preselect.ticker || '',
+      market: preselect.market || '',
+      name: preselect.name || (held ? held.name : ''),
+      type: 'buy',
+      qty: 0,
+      price: curPrice,
+      avgFx: 0,
+      realized: 0
+    });
   } else {
     journalView = 'list';
   }
@@ -2459,6 +2503,7 @@ function closeJournalModal() {
   journalView = 'list';
   journalTrades = [];
   journalPreselect = null;
+  journalEditing = null;
 }
 
 function renderJournalContent() {
@@ -2528,12 +2573,16 @@ function renderJournalContent() {
       const totalRealized = entry.trades.reduce((s, t) => s + (t.realized || 0), 0);
       const realizedCls = totalRealized >= 0 ? 'var(--up)' : 'var(--down)';
       html += `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg3)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px">
+          <div style="flex:1;min-width:0">
             <span style="font-size:13px;font-weight:600;color:var(--text)">${entry.title || '(제목 없음)'}</span>
             <span style="font-size:10px;color:var(--text3);margin-left:8px">${entry.date} ${entry.time}</span>
           </div>
           ${totalRealized !== 0 ? `<span style="font-size:12px;font-weight:600;font-family:var(--mono);color:${realizedCls}">실현 ${fmtSign(totalRealized)}원</span>` : ''}
+          <div style="display:flex;gap:4px">
+            <button onclick="editJournalEntry('${entry.id}')" title="수정" style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-size:11px;display:inline-flex;align-items:center;justify-content:center">✏️</button>
+            <button onclick="deleteJournalEntry('${entry.id}')" title="삭제" style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--down);cursor:pointer;font-size:11px;display:inline-flex;align-items:center;justify-content:center">🗑</button>
+          </div>
         </div>
         ${entry.desc ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">${entry.desc}</div>` : ''}
         <div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -2570,14 +2619,16 @@ function renderTradeInput(el) {
   const acctNames = [...new Set(pf.map(s => s.acct).filter(Boolean))];
 
   let html = '<div class="modal-title" style="display:flex;align-items:center;justify-content:space-between">';
-  html += '<span>거래 기록</span>';
-  html += '<button onclick="journalView=\'list\';renderJournalContent()" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer">← 뒤로</button>';
+  html += `<span>${journalEditing ? '거래 수정' : '거래 기록'}</span>`;
+  html += '<button onclick="cancelTradeInput()" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer">← 뒤로</button>';
   html += '</div>';
 
   // 제목/설명
+  const initTitle = journalEditing ? (journalEditing.title || '') : '';
+  const initDesc = journalEditing ? (journalEditing.desc || '') : '';
   html += '<div style="margin-bottom:12px">';
-  html += '<input id="j-title" placeholder="제목 (자동 생성됨)" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1);margin-bottom:6px" />';
-  html += '<input id="j-desc" placeholder="설명 (선택)" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text2)" />';
+  html += `<input id="j-title" placeholder="제목 (자동 생성됨)" value="${initTitle.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1);margin-bottom:6px" />`;
+  html += `<input id="j-desc" placeholder="설명 (선택)" value="${initDesc.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text2)" />`;
   html += '</div>';
 
   // 거래 목록
@@ -2595,16 +2646,27 @@ function renderTradeInput(el) {
 
   // 저장/취소
   html += '<div style="display:flex;gap:8px">';
-  html += '<button onclick="saveJournalEntry()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:600;cursor:pointer;font-size:13px">저장</button>';
-  html += '<button onclick="journalView=\'list\';renderJournalContent()" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:13px">취소</button>';
+  html += `<button onclick="saveJournalEntry()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:600;cursor:pointer;font-size:13px">${journalEditing ? '수정 저장' : '저장'}</button>`;
+  html += '<button onclick="cancelTradeInput()" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:13px">취소</button>';
   html += '</div>';
 
   el.innerHTML = html;
 
-  // preselect 처리
-  if (journalPreselect && journalTrades.length === 0) {
-    journalPreselect = null;
-    addTradeRow(arguments[0]); // el 인자 무시, preselect는 이미 전역
+  // select 값 / input 값 명시적 설정 (브라우저가 selected 속성을 무시하는 경우 대비)
+  const tradeListEl = document.getElementById('j-trades-list');
+  if (tradeListEl) {
+    const rows = tradeListEl.children;
+    journalTrades.forEach((t, i) => {
+      const row = rows[i];
+      if (!row) return;
+      const selects = row.querySelectorAll('select');
+      if (selects[0]) selects[0].value = t.acct || '';
+      if (selects[1]) selects[1].value = t.ticker || '';
+      if (selects[2]) selects[2].value = t.type || 'buy';
+      const inputs = row.querySelectorAll('input[data-comma]');
+      if (inputs[0] && t.price) inputs[0].value = t.price.toLocaleString();
+      if (inputs[1] && t.qty) inputs[1].value = t.qty.toLocaleString();
+    });
   }
 }
 
@@ -2694,7 +2756,13 @@ function updateTradeAcct(idx, val) {
 function updateTradeStock(idx, ticker) {
   const t = journalTrades[idx];
   const s = pf.find(x => x.ticker === ticker && (x.acct || '') === t.acct);
-  if (s) { t.ticker = s.ticker; t.market = s.market; t.name = s.name; }
+  if (s) {
+    t.ticker = s.ticker; t.market = s.market; t.name = s.name;
+    const p = px[s.id];
+    if (p) {
+      t.price = s.market === 'US' ? +(+p.priceLocal).toFixed(2) : Math.round(p.priceKrw);
+    }
+  }
   renderJournalContent();
 }
 
@@ -2741,7 +2809,7 @@ function generateJournalTitle(trades) {
 }
 
 function saveJournalEntry() {
-  // 유효성 검사
+  // 유효성 검사: 매도는 보유 없어도 기록 허용(평단=prevAvg) 필요하므로 qty/price만 체크
   const validTrades = journalTrades.filter(t => t.ticker && t.qty > 0 && t.price > 0);
   if (validTrades.length === 0) { alert('유효한 거래가 없습니다.'); return; }
 
@@ -2752,30 +2820,136 @@ function saveJournalEntry() {
   if (!title) title = generateJournalTitle(validTrades);
 
   const now = new Date();
+  const isEdit = !!journalEditing;
   const entry = {
-    id: Date.now().toString(),
-    date: now.toISOString().slice(0, 10),
-    time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+    id: isEdit ? journalEditing.id : Date.now().toString(),
+    date: isEdit ? journalEditing.date : now.toISOString().slice(0, 10),
+    time: isEdit ? journalEditing.time : now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
     title, desc,
-    trades: validTrades.map(t => ({ ticker: t.ticker, market: t.market, name: t.name, acct: t.acct, type: t.type, qty: t.qty, price: t.price, avgFx: t.avgFx || 0, realized: t.realized || 0 }))
+    trades: []
   };
 
-  // 종목카드 반영 + 실현손익 반영
+  // 종목카드 반영 + 실현손익 반영 (pre-state 기록)
   for (const t of validTrades) {
     const existing = pf.find(s => s.ticker === t.ticker && (s.acct || '') === (t.acct || ''));
+    const prevQty = existing ? existing.qty : 0;
+    const prevAvg = existing ? existing.avg : 0;
+    const prevAvgFx = existing && existing.avgFx ? existing.avgFx : 0;
+
+    let realized = 0;
     if (t.type === 'buy') {
       if (existing) {
-        // 평단 가중평균 재계산
         const totalCost = existing.avg * existing.qty + t.price * t.qty;
         const totalQty = existing.qty + t.qty;
         existing.avg = totalCost / totalQty;
+        const oldQty = existing.qty;
         existing.qty = totalQty;
         if (t.market === 'US' && t.avgFx > 0) {
-          const totalFxCost = (existing.avgFx || usdkrw) * (existing.qty - t.qty) + t.avgFx * t.qty;
+          const totalFxCost = (existing.avgFx || usdkrw) * oldQty + t.avgFx * t.qty;
           existing.avgFx = totalFxCost / totalQty;
         }
       } else {
-        // 신규 종목 추가
+        const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
+        const newStock = { id, market: t.market, ticker: t.ticker, name: t.name || t.ticker, avg: t.price, qty: t.qty, acct: t.acct };
+        if (t.market === 'US' && t.avgFx > 0) newStock.avgFx = t.avgFx;
+        pf.push(newStock);
+      }
+    } else if (t.type === 'sell') {
+      if (existing) {
+        realized = Math.round((t.price - existing.avg) * t.qty);
+        existing.qty -= t.qty;
+        if (existing.qty <= 0) {
+          pf = pf.filter(s => s.id !== existing.id);
+          delete px[existing.id];
+        }
+      }
+    }
+
+    entry.trades.push({
+      ticker: t.ticker, market: t.market, name: t.name, acct: t.acct,
+      type: t.type, qty: t.qty, price: t.price,
+      avgFx: t.avgFx || 0, realized,
+      prevQty, prevAvg, prevAvgFx
+    });
+  }
+
+  save();
+  syncYearAccounts();
+
+  // 실현손익 → yearAccounts
+  for (const t of entry.trades) {
+    if (t.type !== 'sell' || !t.realized) continue;
+    let ya = yearAccounts.find(a => a.name === t.acct);
+    if (!ya) {
+      const hasUS = t.market === 'US';
+      ya = { name: t.acct, yearEndPnl: 0, realized: 0, feeRate: 0, taxRate: hasUS ? 22 : 0 };
+      yearAccounts.push(ya);
+    }
+    ya.realized = (ya.realized || 0) + t.realized;
+  }
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+
+  if (isEdit) {
+    const i = journalLog.findIndex(j => j.id === entry.id);
+    if (i >= 0) journalLog[i] = entry;
+    else journalLog.push(entry);
+  } else {
+    journalLog.push(entry);
+  }
+  saveJournal();
+
+  // dailyPnl journalId 연결 (신규일 때만)
+  if (!isEdit) {
+    const today = now.toISOString().slice(0, 10);
+    const todayPnlEntry = dailyPnl.find(d => d.date === today);
+    if (todayPnlEntry) { todayPnlEntry.journalId = entry.id; saveDailyPnl(); }
+  }
+
+  journalView = 'list';
+  journalTrades = [];
+  journalEditing = null;
+  render();
+  renderJournalContent();
+  if (appKey && appSecret) refreshAll();
+}
+
+// 매매 입력 취소 (편집 중이면 되돌린 상태 유지)
+function cancelTradeInput() {
+  if (journalEditing) {
+    // 편집을 취소한 경우 원 entry를 되돌려 놓아야 한다 → reverse된 상태를 다시 재적용
+    const original = journalEditing.originalEntry;
+    if (original) {
+      applyEntryEffect(original);
+      journalLog.push(original);
+      journalLog.sort((a, b) => a.id.localeCompare(b.id));
+      save();
+      localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+      saveJournal();
+    }
+  }
+  journalView = 'list';
+  journalTrades = [];
+  journalEditing = null;
+  render();
+  renderJournalContent();
+}
+
+// entry 효과를 pf/yearAccounts에 재적용 (편집 취소 복원용)
+function applyEntryEffect(entry) {
+  for (const t of entry.trades) {
+    const existing = pf.find(s => s.ticker === t.ticker && (s.acct || '') === (t.acct || ''));
+    if (t.type === 'buy') {
+      if (existing) {
+        const totalCost = existing.avg * existing.qty + t.price * t.qty;
+        const totalQty = existing.qty + t.qty;
+        existing.avg = totalCost / totalQty;
+        const oldQty = existing.qty;
+        existing.qty = totalQty;
+        if (t.market === 'US' && t.avgFx > 0) {
+          const totalFxCost = (existing.avgFx || usdkrw) * oldQty + t.avgFx * t.qty;
+          existing.avgFx = totalFxCost / totalQty;
+        }
+      } else {
         const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
         const newStock = { id, market: t.market, ticker: t.ticker, name: t.name || t.ticker, avg: t.price, qty: t.qty, acct: t.acct };
         if (t.market === 'US' && t.avgFx > 0) newStock.avgFx = t.avgFx;
@@ -2788,34 +2962,130 @@ function saveJournalEntry() {
           pf = pf.filter(s => s.id !== existing.id);
           delete px[existing.id];
         }
-        // 실현손익 → yearAccounts
-        if (t.realized) {
-          const ya = yearAccounts.find(a => a.name === t.acct);
-          if (ya) {
-            ya.realized = (ya.realized || 0) + t.realized;
-            localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+      }
+    }
+    if (t.type === 'sell' && t.realized) {
+      let ya = yearAccounts.find(a => a.name === t.acct);
+      if (!ya) {
+        const hasUS = t.market === 'US';
+        ya = { name: t.acct, yearEndPnl: 0, realized: 0, feeRate: 0, taxRate: hasUS ? 22 : 0 };
+        yearAccounts.push(ya);
+      }
+      ya.realized = (ya.realized || 0) + t.realized;
+    }
+  }
+}
+
+// entry 효과 되돌리기 (pre-state 기반)
+function reverseEntryEffect(entry) {
+  for (let i = entry.trades.length - 1; i >= 0; i--) {
+    const t = entry.trades[i];
+    const hasPrev = t.prevQty !== undefined && t.prevAvg !== undefined;
+    const existing = pf.find(s => s.ticker === t.ticker && (s.acct || '') === (t.acct || ''));
+    if (t.type === 'buy') {
+      if (hasPrev) {
+        if (t.prevQty > 0) {
+          if (existing) {
+            existing.qty = t.prevQty;
+            existing.avg = t.prevAvg;
+            if (t.prevAvgFx > 0) existing.avgFx = t.prevAvgFx;
+            else delete existing.avgFx;
+          } else {
+            const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
+            const newStock = { id, market: t.market, ticker: t.ticker, name: t.name || t.ticker, avg: t.prevAvg, qty: t.prevQty, acct: t.acct };
+            if (t.prevAvgFx > 0) newStock.avgFx = t.prevAvgFx;
+            pf.push(newStock);
           }
+        } else if (existing) {
+          pf = pf.filter(s => s.id !== existing.id);
+          delete px[existing.id];
         }
+      } else if (existing) {
+        // fallback: pre-state 없음
+        if (existing.qty <= t.qty + 0.0001) {
+          pf = pf.filter(s => s.id !== existing.id);
+          delete px[existing.id];
+        } else {
+          const newQty = existing.qty - t.qty;
+          existing.avg = (existing.avg * existing.qty - t.price * t.qty) / newQty;
+          if (existing.avgFx && t.avgFx > 0) {
+            existing.avgFx = (existing.avgFx * existing.qty - t.avgFx * t.qty) / newQty;
+          }
+          existing.qty = newQty;
+        }
+      }
+    } else if (t.type === 'sell') {
+      if (hasPrev) {
+        if (existing) {
+          existing.qty = t.prevQty;
+          existing.avg = t.prevAvg;
+          if (t.prevAvgFx > 0) existing.avgFx = t.prevAvgFx;
+        } else if (t.prevQty > 0) {
+          const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
+          const newStock = { id, market: t.market, ticker: t.ticker, name: t.name || t.ticker, avg: t.prevAvg, qty: t.prevQty, acct: t.acct };
+          if (t.prevAvgFx > 0) newStock.avgFx = t.prevAvgFx;
+          pf.push(newStock);
+        }
+      } else if (existing) {
+        existing.qty += t.qty;
+      }
+      // realized 차감
+      if (t.realized) {
+        const ya = yearAccounts.find(a => a.name === t.acct);
+        if (ya) ya.realized = (ya.realized || 0) - t.realized;
       }
     }
   }
+}
 
+function deleteJournalEntry(entryId) {
+  const entry = journalLog.find(j => j.id === entryId);
+  if (!entry) return;
+  if (!confirm('이 거래 기록을 삭제하고 원래 상태로 되돌릴까요?')) return;
+  reverseEntryEffect(entry);
+  journalLog = journalLog.filter(j => j.id !== entryId);
   save();
   syncYearAccounts();
-  journalLog.push(entry);
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
   saveJournal();
-
-  // dailyPnl에 오늘 journalId 업데이트
-  const today = now.toISOString().slice(0, 10);
-  const todayPnlEntry = dailyPnl.find(d => d.date === today);
-  if (todayPnlEntry) { todayPnlEntry.journalId = entry.id; saveDailyPnl(); }
-
-  journalView = 'list';
-  journalTrades = [];
+  // dailyPnl에서 journalId 참조 제거
+  for (const d of dailyPnl) {
+    if (d.journalId === entryId) delete d.journalId;
+  }
+  saveDailyPnl();
   render();
   renderJournalContent();
-  // 시세 갱신
   if (appKey && appSecret) refreshAll();
+}
+
+function editJournalEntry(entryId) {
+  const entry = journalLog.find(j => j.id === entryId);
+  if (!entry) return;
+  // 원본 보관(취소 시 복원용)
+  const originalEntry = JSON.parse(JSON.stringify(entry));
+  reverseEntryEffect(entry);
+  journalLog = journalLog.filter(j => j.id !== entryId);
+  save();
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+  saveJournal();
+  journalTrades = entry.trades.map(t => ({
+    acct: t.acct || '',
+    ticker: t.ticker,
+    market: t.market,
+    name: t.name,
+    type: t.type,
+    qty: t.qty,
+    price: t.price,
+    avgFx: t.avgFx || 0,
+    realized: 0
+  }));
+  journalEditing = {
+    id: entry.id, title: entry.title, desc: entry.desc,
+    date: entry.date, time: entry.time, originalEntry
+  };
+  journalView = 'trade';
+  render();
+  renderJournalContent();
 }
 
 function buildPieCSS(items, size) {
