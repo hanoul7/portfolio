@@ -46,11 +46,12 @@ body {
   color: var(--text);
   font-family: var(--sans);
   min-height: 100%;
+  padding-top: var(--header-h, 64px);
   padding-bottom: env(safe-area-inset-bottom);
   overflow-x: hidden;
 }
 
-/* 헤더 */
+/* 헤더 — 스크롤과 무관하게 항상 최상단 고정 */
 header {
   background: rgba(10,12,16,0.92);
   backdrop-filter: blur(20px);
@@ -61,8 +62,10 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100;
 }
 
@@ -584,6 +587,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     <div class="icon-btn" onclick="exportData()" title="내보내기" style="font-size:14px">💾</div>
     <div class="icon-btn" onclick="document.getElementById('import-file').click()" title="가져오기" style="font-size:14px">📂</div>
     <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)" />
+    <div class="icon-btn" id="toggle-all-btn" onclick="toggleExpandAll()" title="모두 펼치기/접기" style="font-size:14px">⇕</div>
     <div class="icon-btn" onclick="openApiModal()" title="API 설정">🔑</div>
     <div class="icon-btn" onclick="refreshAll()" title="새로고침">↻</div>
   </div>
@@ -867,6 +871,7 @@ async function init() {
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
   render();
+  updateHeaderHeight();
   fetchRate().then(() => fetchIndices());
   if (appKey && appSecret) {
     setSt('loading', token ? '저장된 토큰 사용' : '토큰 발급 중...');
@@ -1594,7 +1599,17 @@ async function refreshNonKR() {
 function render() {
   renderSummary();
   renderList();
+  updateExpandAllBtn();
 }
+
+// 헤더 높이 측정 → body padding-top 보정 (헤더가 fixed이므로 컨텐츠가 가리지 않게)
+function updateHeaderHeight() {
+  const h = document.querySelector('header');
+  if (!h) return;
+  document.documentElement.style.setProperty('--header-h', h.offsetHeight + 'px');
+}
+window.addEventListener('resize', updateHeaderHeight);
+window.addEventListener('load', updateHeaderHeight);
 
 function renderList() {
   const el = document.getElementById('stock-list');
@@ -2626,7 +2641,13 @@ function renderTradeInput(el) {
   // 제목/설명
   const initTitle = journalEditing ? (journalEditing.title || '') : '';
   const initDesc = journalEditing ? (journalEditing.desc || '') : '';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const initDate = journalEditing ? (journalEditing.date || todayStr) : todayStr;
   html += '<div style="margin-bottom:12px">';
+  html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+    <label style="font-size:11px;color:var(--text3);white-space:nowrap">거래 날짜</label>
+    <input type="date" id="j-date" value="${initDate}" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1);font-family:var(--mono)" />
+  </div>`;
   html += `<input id="j-title" placeholder="제목 (자동 생성됨)" value="${initTitle.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1);margin-bottom:6px" />`;
   html += `<input id="j-desc" placeholder="설명 (선택)" value="${initDesc.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text2)" />`;
   html += '</div>';
@@ -2815,10 +2836,14 @@ function saveJournalEntry() {
 
   const titleEl = document.getElementById('j-title');
   const descEl = document.getElementById('j-desc');
+  const dateEl = document.getElementById('j-date');
   let title = titleEl ? titleEl.value.trim() : '';
   const desc = descEl ? descEl.value.trim() : '';
   const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
   const isEdit = !!journalEditing;
+  // 사용자가 입력한 거래 날짜 (YYYY-MM-DD), 없으면 오늘
+  const inputDate = (dateEl && dateEl.value) ? dateEl.value : todayStr;
 
   // 편집 중이고 제목이 원본 자동생성 제목과 동일하다면(=사용자가 수정 안 함) → 새 거래 기준으로 재생성 표시
   let regenerateTitle = !title;
@@ -2827,10 +2852,19 @@ function saveJournalEntry() {
     if (title === originalAutoTitle) regenerateTitle = true;
   }
 
+  // 편집 시: 사용자가 날짜를 변경했을 수도 있으므로 입력값을 우선
+  // 신규 시: 입력값(기본=오늘) 사용. 시각은 입력 날짜가 오늘이면 현재 시각, 아니면 빈 문자열
+  const entryDate = inputDate;
+  let entryTime;
+  if (isEdit) {
+    entryTime = (entryDate === journalEditing.date) ? journalEditing.time : '';
+  } else {
+    entryTime = (entryDate === todayStr) ? now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '';
+  }
   const entry = {
     id: isEdit ? journalEditing.id : Date.now().toString(),
-    date: isEdit ? journalEditing.date : now.toISOString().slice(0, 10),
-    time: isEdit ? journalEditing.time : now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+    date: entryDate,
+    time: entryTime,
     title, desc,
     trades: []
   };
@@ -2909,11 +2943,10 @@ function saveJournalEntry() {
   }
   saveJournal();
 
-  // dailyPnl journalId 연결 (신규일 때만)
+  // dailyPnl journalId 연결 (신규일 때만, 입력 날짜 기준)
   if (!isEdit) {
-    const today = now.toISOString().slice(0, 10);
-    const todayPnlEntry = dailyPnl.find(d => d.date === today);
-    if (todayPnlEntry) { todayPnlEntry.journalId = entry.id; saveDailyPnl(); }
+    const pnlEntry = dailyPnl.find(d => d.date === entry.date);
+    if (pnlEntry) { pnlEntry.journalId = entry.id; saveDailyPnl(); }
   }
 
   // 일별 스냅샷 갱신 (차트/일별 표 값 반영)
@@ -3260,6 +3293,34 @@ function toggleAcctMore(id, btn, count) {
   el.style.display = hidden ? '' : 'none';
   btn.textContent = hidden ? '접기' : `종목 ${count}개 보기`;
   if (hidden) expandedAccts.add(id); else expandedAccts.delete(id);
+  updateExpandAllBtn();
+}
+
+function getAllAcctGids() {
+  const keys = [...new Set(pf.map(s => s.acct || ''))];
+  return keys.map(key => 'acct-more-' + btoa(unescape(encodeURIComponent(key))).replace(/[^a-zA-Z0-9]/g, '_'));
+}
+
+function toggleExpandAll() {
+  const gids = getAllAcctGids();
+  if (gids.length === 0) return;
+  const anyCollapsed = gids.some(g => !expandedAccts.has(g));
+  if (anyCollapsed) {
+    gids.forEach(g => expandedAccts.add(g));
+  } else {
+    expandedAccts.clear();
+  }
+  render();
+  updateExpandAllBtn();
+}
+
+function updateExpandAllBtn() {
+  const btn = document.getElementById('toggle-all-btn');
+  if (!btn) return;
+  const gids = getAllAcctGids();
+  const allExpanded = gids.length > 0 && gids.every(g => expandedAccts.has(g));
+  btn.textContent = allExpanded ? '⊟' : '⊞';
+  btn.title = allExpanded ? '모두 접기' : '모두 펼치기';
 }
 
 function renameAcct(oldName) {

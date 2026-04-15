@@ -13,11 +13,22 @@ export default async function handler(req, res) {
   ];
 
   const errors = [];
+  // 8초 타임아웃으로 yahoo finance 호출 — 한쪽 서버가 느릴 때 다른 쪽으로 빠르게 폴백
+  const fetchWithTimeout = async (url, ms) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ms);
+    try {
+      return await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+        signal: ctl.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   for (const url of urls) {
     try {
-      const r = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
-      });
+      const r = await fetchWithTimeout(url, 8000);
       const d = await r.json();
       const meta = d?.chart?.result?.[0]?.meta;
       if (meta?.regularMarketPrice) {
