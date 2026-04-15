@@ -1,13 +1,11 @@
-// KST 15:30(UTC 06:30)에 가장 가까운 캔들 가격 찾기
+// 전일 KST 15:30(UTC 06:30) 종가 캔들 찾기 — 항상 직전 영업일 15:30 기준
 function findKstClose(timestamps, closes) {
   if (!timestamps || !closes) return null;
   const now = new Date();
-  // 전 거래일(평일) 찾기
   const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
   kst.setHours(15, 30, 0, 0);
-  // 오늘 KST 15:30 이전이면 어제 기준, 아니면 오늘 기준
-  const nowKst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  if (nowKst <= kst) kst.setDate(kst.getDate() - 1);
+  // 항상 어제 15:30 KST를 목표로 (오늘 15:30 이후여도 '전일비'는 어제 종가 기준)
+  kst.setDate(kst.getDate() - 1);
   // 주말이면 금요일로
   while (kst.getDay() === 0 || kst.getDay() === 6) kst.setDate(kst.getDate() - 1);
   // KST 15:30을 UTC 타임스탬프로 변환 (KST = UTC+9)
@@ -66,9 +64,9 @@ export default async function handler(req, res) {
   // 2) KST 15:30 기준 전일종가 조회 (5분봉 2일치)
   let kstPrevClose = null;
   const histSources = [
-    'https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=2d',
-    'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=2d',
-    'https://query2.finance.yahoo.com/v8/finance/chart/XAU=X?interval=5m&range=2d',
+    'https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=5d',
+    'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=5d',
+    'https://query2.finance.yahoo.com/v8/finance/chart/XAU=X?interval=5m&range=5d',
   ];
   for (const url of histSources) {
     try {
