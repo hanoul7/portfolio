@@ -2923,11 +2923,13 @@ function saveJournalEntry() {
   }
   saveJournal();
 
-  // dailyPnl journalId 연결 (신규일 때만, 입력 날짜 기준)
-  if (!isEdit) {
-    const pnlEntry = dailyPnl.find(d => d.date === entry.date);
-    if (pnlEntry) { pnlEntry.journalId = entry.id; saveDailyPnl(); }
+  // dailyPnl journalId 재연결 — 신규/편집 모두, 편집 시 날짜가 바뀌면 링크 이동
+  for (const d of dailyPnl) {
+    if (d.journalId === entry.id) delete d.journalId;
   }
+  const pnlEntry = dailyPnl.find(d => d.date === entry.date);
+  if (pnlEntry) pnlEntry.journalId = entry.id;
+  saveDailyPnl();
 
   // 일별 스냅샷 갱신 (차트/일별 표 값 반영)
   snapshotDailyPnl();
