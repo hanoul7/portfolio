@@ -1112,25 +1112,8 @@ function getMarketStateLabel(market, priceData) {
   return null;
 }
 // ── 오늘 해당 시장이 개장했었는지 (전일비 표시 여부 판단) ──
+// US는 baseline이 '어제 KST 15:30' 고정 시점이므로 시각 관계없이 전일비 계산 가능 → 항상 true
 function isTradingDay(market, priceData) {
-  const now = new Date();
-  if (market === 'KR') {
-    // 장외시간엔 fetchKR이 전영업일 종가를 prevClose로 채워주므로 항상 표시
-    return true;
-  }
-  if (market === 'US') {
-    // marketState가 있으면 활용: REGULAR/PRE/POST → 오늘 거래 있음, CLOSED → 추가 판단
-    const ms = (priceData?.marketState || '').toUpperCase();
-    if (ms.includes('REGULAR') || ms.includes('PRE') || ms.includes('POST')) return true;
-    // CLOSED 상태: ET 기준으로 오늘이 평일이고 장이 한번 열렸다가 닫혔는지 판단
-    // ET 기준 16:00 이후~다음날 04:00 전이면 오늘 거래가 있었음 (정규장 종료 후)
-    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const day = et.getDay();
-    if (day === 0 || day === 6) return false;
-    // 평일이고 장 시작 시간(04:00 프리마켓) 이후면 오늘 거래일
-    return et.getHours() >= 4;
-  }
-  // GOLD, SILVER, MANUAL: 항상 전일비 표시
   return true;
 }
 
