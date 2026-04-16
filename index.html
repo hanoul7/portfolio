@@ -848,8 +848,9 @@ let refreshing = false;
 let xauUsd = 0;
 let goldPremium = parseFloat(localStorage.getItem('gold_premium') || '1.02');
 let silverPremium = parseFloat(localStorage.getItem('silver_premium') || '1.0');
-// US 전일비 기준 — 'kst9am'(기본): 임의 규칙, KST 9시에 전전일→전일 baseline 전환 / 'lastClose': 항상 직전 정규장 종가 (한국 HTS 방식)
-let usBaselineMode = localStorage.getItem('us_baseline_mode') || 'kst9am';
+// US 전일비 기준 — 'kst1530'(기본): 전일 KST 15:30 시점 가격 / 'lastClose': 항상 직전 정규장 종가 (한국 HTS 방식)
+let usBaselineMode = localStorage.getItem('us_baseline_mode') || 'kst1530';
+if (usBaselineMode === 'kst9am') { usBaselineMode = 'kst1530'; localStorage.setItem('us_baseline_mode', 'kst1530'); }
 let yearAccounts = JSON.parse(localStorage.getItem('year_accounts') || '[]');
 let journalLog = JSON.parse(localStorage.getItem('pf_journal') || '[]');
 let dailyPnl = JSON.parse(localStorage.getItem('pf_daily_pnl') || '[]');
@@ -1301,14 +1302,10 @@ async function fetchSilver() {
 function pickUSBasePrice(d) {
   if (usBaselineMode === 'lastClose') {
     // HTS 방식: 항상 직전 정규장 종가 vs 그 직전
-    return d.prevClose || d.kst9amPrice || d.price;
+    return d.prevClose || d.kst1530Price || d.price;
   }
-  // kst9am: KST 9시 이전엔 전전일(prevClose), 이후엔 전일(kst9amPrice)
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  const beforeKST9 = kst.getHours() < 9;
-  return beforeKST9
-    ? (d.prevClose || d.kst9amPrice || d.price)
-    : (d.kst9amPrice || d.prevClose || d.price);
+  // kst1530: 전일 KST 15:30 시점 가격 (없으면 prevClose fallback)
+  return d.kst1530Price || d.prevClose || d.price;
 }
 
 async function fetchUS(ticker) {
@@ -1335,7 +1332,7 @@ async function fetchUS(ticker) {
 
 // 모드 토글 — 캐시된 px 재계산 후 렌더
 function setUSBaselineMode(mode) {
-  if (mode !== 'kst9am' && mode !== 'lastClose') return;
+  if (mode !== 'kst1530' && mode !== 'lastClose') return;
   if (mode === usBaselineMode) return;
   usBaselineMode = mode;
   localStorage.setItem('us_baseline_mode', mode);
@@ -1950,7 +1947,7 @@ function showTodayDetail() {
   const toggleHtml = `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
       <span style="font-size:10px;color:var(--text3);margin-right:2px">미장 기준</span>
-      <button onclick="setUSBaselineMode('kst9am')" style="${btnStyle(usBaselineMode === 'kst9am')}">KST 9시 룰</button>
+      <button onclick="setUSBaselineMode('kst1530')" style="${btnStyle(usBaselineMode === 'kst1530')}">KST 15:30</button>
       <button onclick="setUSBaselineMode('lastClose')" style="${btnStyle(usBaselineMode === 'lastClose')}">HTS</button>
     </div>`;
   const html = `${toggleHtml}<div style="padding:4px 0">

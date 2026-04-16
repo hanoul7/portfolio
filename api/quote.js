@@ -1,3 +1,23 @@
+// US 전용: 어제 KST 15:30(= 어제 06:30 UTC) 시점 이하 가장 최근 valid close 찾기
+// 미장은 KST 15:30 시점에 closed 상태 → 직전 정규/포스트마켓 마지막 체결가가 반환됨
+function findKst1530Price(timestamps, closes) {
+  if (!timestamps || !closes) return null;
+  const now = new Date();
+  const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  kst.setHours(15, 30, 0, 0);
+  kst.setDate(kst.getDate() - 1);
+  const targetUtc = Math.floor(new Date(kst.toISOString().slice(0, 10) + 'T06:30:00Z').getTime() / 1000);
+  let bestTs = -1, bestPrice = null;
+  for (let i = 0; i < timestamps.length; i++) {
+    const ts = timestamps[i], c = closes[i];
+    if (ts <= targetUtc && c != null && c > 0 && ts > bestTs) {
+      bestTs = ts;
+      bestPrice = c;
+    }
+  }
+  return bestPrice;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -26,6 +46,24 @@ export default async function handler(req, res) {
       clearTimeout(timer);
     }
   };
+
+  // US 전용: 전일 KST 15:30 기준가용 5m/5d 히스토리 — 메인 호출과 병렬 진행
+  const kst1530Promise = market === 'US' ? (async () => {
+    const histUrls = [
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=5d&includePrePost=true`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=5d&includePrePost=true`,
+    ];
+    for (const url of histUrls) {
+      try {
+        const r = await fetchWithTimeout(url, 8000);
+        const d = await r.json();
+        const result = d?.chart?.result?.[0];
+        const found = findKst1530Price(result?.timestamp, result?.indicators?.quote?.[0]?.close);
+        if (found) return found;
+      } catch(e) {}
+    }
+    return null;
+  })() : Promise.resolve(null);
   for (const url of urls) {
     try {
       const r = await fetchWithTimeout(url, 8000);
@@ -54,18 +92,9 @@ export default async function handler(req, res) {
         }
         console.log(`[quote] ${symbol} (${market}): $${price} (regular: $${meta.regularMarketPrice}) | marketState: ${marketState}`);
 
-        // US 종목: "가장 최근 완료된 정규장 종가" (KST 9시 baseline 용)
-        // - REGULAR 중: 어제 종가 (chartPreviousClose)
-        // - PRE/POST/CLOSED: regularMarketPrice (= 해당 시점의 최근 정규장 종가)
-        let kst9amPrice = null;
-        if (market === 'US') {
-          if (marketState === 'REGULAR') {
-            kst9amPrice = meta.chartPreviousClose || meta.previousClose || null;
-          } else {
-            kst9amPrice = meta.regularMarketPrice || null;
-          }
-          console.log(`[quote] ${symbol} kst9amPrice: $${kst9amPrice} (state: ${marketState})`);
-        }
+        // US 종목: 전일 KST 15:30 시점 가격 (병렬 히스토리 조회 결과 await)
+        const kst1530Price = await kst1530Promise;
+        if (market === 'US') console.log(`[quote] ${symbol} kst1530Price: $${kst1530Price} (state: ${marketState})`);
 
         return res.json({
           price,
@@ -73,7 +102,7 @@ export default async function handler(req, res) {
           name: meta.longName || meta.shortName || null,
           currency: meta.currency,
           marketState,
-          ...(kst9amPrice != null && { kst9amPrice })
+          ...(kst1530Price != null && { kst1530Price })
         });
       }
       errors.push(`${url.split('/')[2]}: price missing (status ${r.status})`);
