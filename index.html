@@ -701,7 +701,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       </div>
       <div class="ff form-full">
         <label class="fl">계좌명 (선택)</label>
-        <input id="f-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" tabindex="6" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
+        <select id="f-acct-select" onchange="onAcctSelectChange('f')" tabindex="6" style="width:100%;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1)"></select>
+        <input id="f-acct" type="text" placeholder="새 계좌명 입력" autocomplete="off" style="display:none;margin-top:6px" onkeydown="if(event.key==='Enter'){event.preventDefault();addStock();}" />
       </div>
     </div>
     <div id="f-name-display" style="font-size:13px;color:var(--text2);padding:0 2px;min-height:20px">
@@ -742,7 +743,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       </div>
       <div class="ff form-full">
         <label class="fl">계좌명</label>
-        <input id="e-acct" type="text" placeholder="예: 키움, 삼성증권" autocomplete="off" />
+        <select id="e-acct-select" onchange="onAcctSelectChange('e')" style="width:100%;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1)"></select>
+        <input id="e-acct" type="text" placeholder="새 계좌명 입력" autocomplete="off" style="display:none;margin-top:6px" />
       </div>
     </div>
     <div class="form-err" id="edit-err"></div>
@@ -1591,6 +1593,30 @@ function updateHeaderHeight() {
 window.addEventListener('resize', updateHeaderHeight);
 window.addEventListener('load', updateHeaderHeight);
 
+// 전일 대비 손익 (KRW) — 오늘 매수분은 매수가 기준, 어제부터 보유분만 prevClose 기준
+function computeDayPnl(s, p) {
+  if (!p || !p.prevClose || p.prevClose <= 0 || !isTradingDay(s.market, p)) return 0;
+  const fxNow = usdkrw;
+  const prevKrw = s.market === 'US' ? p.prevClose * fxNow : p.prevClose;
+  const curKrw = p.priceKrw;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let todayBuyQty = 0, todayBuyCostKrw = 0, todaySellQty = 0;
+  for (const j of journalLog) {
+    if (j.date !== todayStr) continue;
+    for (const t of (j.trades || [])) {
+      if (t.ticker !== s.ticker || (t.acct || '') !== (s.acct || '')) continue;
+      const tPriceKrw = t.market === 'US' ? t.price * (t.avgFx || fxNow) : t.price;
+      if (t.type === 'buy') { todayBuyQty += t.qty; todayBuyCostKrw += tPriceKrw * t.qty; }
+      else if (t.type === 'sell') { todaySellQty += t.qty; }
+    }
+  }
+  const yesterdayQty = s.qty - todayBuyQty + todaySellQty;
+  let pnl = 0;
+  if (yesterdayQty > 0) pnl += (curKrw - prevKrw) * yesterdayQty;
+  if (todayBuyQty > 0) pnl += curKrw * todayBuyQty - todayBuyCostKrw;
+  return pnl;
+}
+
 function renderList() {
   const el = document.getElementById('stock-list');
   if (pf.length === 0) {
@@ -1624,10 +1650,7 @@ function renderList() {
       cost += sCost;
       const p = px[s.id];
       ev += p ? p.priceKrw * s.qty : sCost;
-      if (p && p.prevClose > 0 && isTradingDay(s.market, p)) {
-        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-        dayChg += Math.round((p.priceKrw - prevKrw) * s.qty);
-      }
+      if (p) dayChg += Math.round(computeDayPnl(s, p));
     }
     acctStats[key] = { cost, eval: ev, dayChg };
   }
@@ -1642,9 +1665,7 @@ function renderList() {
     const stocks = groups[key].slice().sort((a, b) => {
       const dayPnl = (s) => {
         const p = px[s.id];
-        if (!p || !p.prevClose || p.prevClose <= 0 || !isTradingDay(s.market, p)) return 0;
-        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-        return Math.round((p.priceKrw - prevKrw) * s.qty);
+        return Math.round(computeDayPnl(s, p));
       };
       const diff = Math.abs(dayPnl(b)) - Math.abs(dayPnl(a));
       if (diff !== 0) return diff;
@@ -1657,16 +1678,14 @@ function renderList() {
     const highlights = stocks.filter(s => {
       const p = px[s.id];
       if (!p || !p.prevClose || p.prevClose <= 0 || !isTradingDay(s.market, p)) return false;
-      const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-      const dayChg = Math.round((p.priceKrw - prevKrw) * s.qty);
+      const dayChg = Math.round(computeDayPnl(s, p));
       return Math.abs(dayChg) >= 5000000 || Math.abs(p.changeRatio || 0) >= 10;
     });
     let highlightHtml = '';
     if (highlights.length > 0) {
       highlightHtml = '<div style="display:flex;flex-direction:column;gap:4px;margin:6px 0 2px">' + highlights.map(s => {
         const p = px[s.id];
-        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-        const dayChg = Math.round((p.priceKrw - prevKrw) * s.qty);
+        const dayChg = Math.round(computeDayPnl(s, p));
         const chgPct = p.changeRatio || 0;
         const cls = dayChg >= 0 ? 'up' : 'down';
         const bgClr = dayChg >= 0 ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
@@ -1815,9 +1834,8 @@ function renderStockCard(s, totalEval) {
     const borderColor = gain >= 0 ? `rgba(16,185,129,${(step * 0.35).toFixed(2)})` : `rgba(239,68,68,${(step * 0.35).toFixed(2)})`;
     cardStyle = `background:${bgColor};border-color:${borderColor};`;
 
-    // 전일대비 손익액 계산
-    const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-    const dayPnl = tradingToday && prevKrw > 0 ? Math.round((p.priceKrw - prevKrw) * s.qty) : 0;
+    // 전일대비 손익액 계산 (오늘 매수분은 매수가 기준, 어제부터 보유분만 prevClose 기준)
+    const dayPnl = Math.round(computeDayPnl(s, p));
     const dayPnlCls = dayPnl >= 0 ? 'up' : 'down';
 
     const estLabel = s.market === 'GOLD' ? `<span style="font-size:10px;color:var(--gold)"> ${p.name || ''}</span>`
@@ -1879,10 +1897,7 @@ function showTodayDetail() {
     if (p) {
       groups[key].eval += p.priceKrw * s.qty;
       if (s.market === 'KR' || s.market === 'US') groups[key].markets.add(s.market);
-      if (p.prevClose > 0 && isTradingDay(s.market, p)) {
-        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-        groups[key].dayChg += Math.round((p.priceKrw - prevKrw) * s.qty);
-      }
+      groups[key].dayChg += Math.round(computeDayPnl(s, p));
     }
   }
   // 금일 실현손익 집계
@@ -1957,8 +1972,7 @@ function renderSummary() {
       totalEval += ev;
       if (p.prevClose > 0 && isTradingDay(s.market, p)) {
         hasPrev = true;
-        const prevKrw = s.market === 'US' ? p.prevClose * usdkrw : p.prevClose;
-        todayPnl += (p.priceKrw - prevKrw) * s.qty;
+        todayPnl += computeDayPnl(s, p);
       }
     } else totalEval += sCost;
   }
@@ -2207,7 +2221,7 @@ async function addStock() {
   const avg = commaVal(document.getElementById('f-avg'));
   const qty = commaVal(document.getElementById('f-qty'));
   const avgFx = mkt === 'US' ? commaVal(document.getElementById('f-avgfx')) : 0;
-  const acct = document.getElementById('f-acct').value.trim();
+  const acct = resolveAcctValue('f');
   const err = document.getElementById('add-err');
 
   const manualPrice = mkt === 'MANUAL' ? commaVal(document.getElementById('f-manual-price')) : 0;
@@ -2267,6 +2281,48 @@ function delStock(id) {
 }
 
 // ── 모달 ──
+// 계좌명 select(기존 + "+ 새 계좌") 옵션 채우기
+function populateAcctSelect(selectEl, currentValue) {
+  const acctNames = [...new Set(pf.map(s => s.acct).filter(Boolean))];
+  const isExisting = currentValue && acctNames.includes(currentValue);
+  let html = '<option value="">선택 안 함</option>';
+  for (const a of acctNames) {
+    html += `<option value="${a}" ${a === currentValue ? 'selected' : ''}>${a}</option>`;
+  }
+  if (currentValue && !isExisting) {
+    html += `<option value="__KEEP__" selected>${currentValue}</option>`;
+  }
+  html += `<option value="__NEW__">+ 새 계좌 입력</option>`;
+  selectEl.innerHTML = html;
+}
+
+// f-acct-select / e-acct-select 의 변경 핸들러 — '__NEW__' 선택 시 텍스트 입력 노출
+function onAcctSelectChange(prefix) {
+  const sel = document.getElementById(prefix + '-acct-select');
+  const inp = document.getElementById(prefix + '-acct');
+  if (!sel || !inp) return;
+  if (sel.value === '__NEW__') {
+    inp.style.display = '';
+    inp.value = '';
+    setTimeout(() => inp.focus(), 50);
+  } else if (sel.value === '__KEEP__') {
+    // 사용자가 미리 입력한 값 유지 — 직접 편집하려면 입력창 노출
+    inp.style.display = '';
+  } else {
+    inp.style.display = 'none';
+    inp.value = sel.value;
+  }
+}
+
+// 두 입력 중 실제 사용할 계좌명 결정
+function resolveAcctValue(prefix) {
+  const sel = document.getElementById(prefix + '-acct-select');
+  const inp = document.getElementById(prefix + '-acct');
+  if (!sel) return inp ? inp.value.trim() : '';
+  if (sel.value === '__NEW__' || sel.value === '__KEEP__') return inp.value.trim();
+  return sel.value;
+}
+
 function openAddModal() {
   document.getElementById('f-mkt').value = 'KR';
   document.getElementById('f-tick').value = '';
@@ -2281,6 +2337,8 @@ function openAddModal() {
   document.getElementById('f-qty-unit').textContent = '주';
   document.getElementById('f-qty').value = '';
   document.getElementById('f-acct').value = '';
+  document.getElementById('f-acct').style.display = 'none';
+  populateAcctSelect(document.getElementById('f-acct-select'), '');
   document.getElementById('add-err').textContent = '';
   document.getElementById('name-hint').textContent = '';
   document.getElementById('add-modal').classList.add('open');
@@ -2333,7 +2391,12 @@ function openEditModal(id) {
   commaSet(document.getElementById('e-manual-price'), s.manualPrice || '');
   document.getElementById('e-qty-unit').textContent = (s.market === 'GOLD' || s.market === 'SILVER') ? 'g' : '주';
   commaSet(document.getElementById('e-qty'), s.qty);
-  document.getElementById('e-acct').value = s.acct || '';
+  populateAcctSelect(document.getElementById('e-acct-select'), s.acct || '');
+  const eAcctInp = document.getElementById('e-acct');
+  eAcctInp.value = s.acct || '';
+  // 기존 계좌면 select만 표시, 미지정이거나 미보유 계좌면 입력창도 노출
+  const acctNames = [...new Set(pf.map(x => x.acct).filter(Boolean))];
+  eAcctInp.style.display = (s.acct && !acctNames.includes(s.acct)) ? '' : 'none';
   document.getElementById('edit-err').textContent = '';
   document.getElementById('edit-modal').classList.add('open');
 }
@@ -2344,7 +2407,7 @@ function saveEdit() {
   const avg = commaVal(document.getElementById('e-avg'));
   const qty = commaVal(document.getElementById('e-qty'));
   const avgFx = s.market === 'US' ? commaVal(document.getElementById('e-avgfx')) : 0;
-  const acct = document.getElementById('e-acct').value.trim();
+  const acct = resolveAcctValue('e');
   const err = document.getElementById('edit-err');
   if (avg <= 0 || qty <= 0) {
     err.textContent = '평단과 수량을 확인해주세요'; return;
@@ -2653,17 +2716,19 @@ function renderTradeInput(el) {
 
   el.innerHTML = html;
 
-  // select 값 / input 값 명시적 설정 (브라우저가 selected 속성을 무시하는 경우 대비)
+  // select/input 값 명시적 설정 (브라우저가 selected 속성을 무시하는 경우 대비)
   const tradeListEl = document.getElementById('j-trades-list');
   if (tradeListEl) {
     const rows = tradeListEl.children;
     journalTrades.forEach((t, i) => {
       const row = rows[i];
       if (!row) return;
-      const selects = row.querySelectorAll('select');
-      if (selects[0]) selects[0].value = t.acct || '';
-      if (selects[1]) selects[1].value = t.ticker || '';
-      if (selects[2]) selects[2].value = t.type || 'buy';
+      const acctSel = row.querySelector('[data-role="acct"]');
+      if (acctSel) acctSel.value = t.acct || '';
+      const stockSel = row.querySelector('[data-role="stock"]');
+      if (stockSel) stockSel.value = t.ticker || '';
+      const typeSel = row.querySelector('[data-role="type"]');
+      if (typeSel) typeSel.value = t.type || 'buy';
       const inputs = row.querySelectorAll('input[data-comma]');
       if (inputs[0] && t.price) inputs[0].value = t.price.toLocaleString();
       if (inputs[1] && t.qty) inputs[1].value = t.qty.toLocaleString();
@@ -2672,14 +2737,20 @@ function renderTradeInput(el) {
 }
 
 function renderTradeRow(trade, idx) {
-  const acctNames = [...new Set(pf.map(s => s.acct).filter(Boolean))];
+  // 기존 보유 + 같은 모달 안에서 다른 행들이 입력한 계좌까지 포함
+  const acctNames = [...new Set([
+    ...pf.map(s => s.acct).filter(Boolean),
+    ...journalTrades.map(t => t.acct).filter(Boolean),
+  ])];
   const selectedAcct = trade.acct || '';
+  const acctIsExisting = acctNames.includes(selectedAcct);
+  const isNew = !!trade.isNew;
   const stocksInAcct = pf.filter(s => (s.acct || '') === selectedAcct);
   const unit = (trade.market === 'GOLD' || trade.market === 'SILVER') ? 'g' : '주';
   const isSell = trade.type === 'sell';
 
-  // 현재가/보유수량 표시
-  const held = pf.find(s => s.ticker === trade.ticker && (s.acct || '') === selectedAcct);
+  // 현재가/보유수량 표시 (기존 보유 종목인 경우)
+  const held = !isNew ? pf.find(s => s.ticker === trade.ticker && (s.acct || '') === selectedAcct) : null;
   const p = held ? px[held.id] : null;
   const curPrice = p ? (held.market === 'US' ? p.priceLocal : p.priceKrw) : 0;
   const heldQty = held ? held.qty : 0;
@@ -2693,29 +2764,49 @@ function renderTradeRow(trade, idx) {
     realizedHtml = `<div style="font-size:11px;color:${cls};font-weight:600;margin-top:4px">실현손익: ${fmtSign(trade.realized)}원</div>`;
   }
 
+  // 계좌 select: 기존 + 사용자 입력 신규 계좌(있으면) + "+ 새 계좌"
+  const acctOptions = [
+    `<option value="">선택</option>`,
+    ...acctNames.map(a => `<option value="${a}" ${a === selectedAcct ? 'selected' : ''}>${a}</option>`),
+    (selectedAcct && !acctIsExisting) ? `<option value="${selectedAcct}" selected>${selectedAcct}</option>` : '',
+    `<option value="__NEW__">+ 새 계좌</option>`,
+  ].join('');
+
+  // 종목 입력: 신규 행은 텍스트 입력, 기존 행은 보유 종목 select
+  let stockFieldHtml;
+  if (isNew) {
+    const nameHint = trade.name ? `<div style="font-size:10px;color:var(--up);margin-top:3px">✓ ${trade.name}</div>` : '';
+    stockFieldHtml = `
+      <input data-role="ticker" value="${(trade.ticker || '').replace(/"/g,'&quot;')}" oninput="updateNewTradeTicker(${idx},this.value)" onblur="lookupNewTradeName(${idx})" placeholder="005930 / AAPL" autocapitalize="characters" autocomplete="off" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px;border:1px solid var(--accent);border-radius:6px;background:var(--card);color:var(--text1);font-family:var(--mono)" />
+      ${nameHint}`;
+  } else {
+    stockFieldHtml = `<select data-role="stock" onchange="updateTradeStock(${idx},this.value)" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)">
+      <option value="">선택</option>
+      ${stocksInAcct.map(s => `<option value="${s.ticker}" ${s.ticker === trade.ticker ? 'selected' : ''}>${s.name || s.ticker}</option>`).join('')}
+    </select>`;
+  }
+
+  const newBadge = isNew ? `<span style="font-size:9px;color:var(--accent);background:var(--accent-dim);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:600">신규</span>` : '';
+
   return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg3);position:relative">
     <button onclick="removeTradeRow(${idx})" style="position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text3);cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center">✕</button>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div>
         <div style="font-size:10px;color:var(--text3);margin-bottom:3px">계좌</div>
-        <select onchange="updateTradeAcct(${idx},this.value)" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)">
-          <option value="">선택</option>
-          ${acctNames.map(a => `<option value="${a}" ${a === selectedAcct ? 'selected' : ''}>${a}</option>`).join('')}
+        <select data-role="acct" onchange="updateTradeAcct(${idx},this.value)" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)">
+          ${acctOptions}
         </select>
       </div>
       <div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:3px">종목</div>
-        <select onchange="updateTradeStock(${idx},this.value)" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)">
-          <option value="">선택</option>
-          ${stocksInAcct.map(s => `<option value="${s.ticker}" ${s.ticker === trade.ticker ? 'selected' : ''}>${s.name || s.ticker}</option>`).join('')}
-        </select>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px">종목${newBadge}</div>
+        ${stockFieldHtml}
       </div>
     </div>
-    ${trade.ticker ? `<div style="font-size:10px;color:var(--text3);margin-bottom:8px">현재가: ${curPrice > 0 ? (trade.market === 'US' ? '$' + curPrice.toFixed(2) : fmt(curPrice) + '원') : '—'} · 보유: ${heldQty}${unit} · 평단: ${held ? (trade.market === 'US' ? '$' + held.avg.toFixed(2) : fmt(held.avg) + '원') : '—'}</div>` : ''}
+    ${(!isNew && trade.ticker) ? `<div style="font-size:10px;color:var(--text3);margin-bottom:8px">현재가: ${curPrice > 0 ? (trade.market === 'US' ? '$' + curPrice.toFixed(2) : fmt(curPrice) + '원') : '—'} · 보유: ${heldQty}${unit} · 평단: ${held ? (trade.market === 'US' ? '$' + held.avg.toFixed(2) : fmt(held.avg) + '원') : '—'}</div>` : ''}
     <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;align-items:end">
       <div>
         <div style="font-size:10px;color:var(--text3);margin-bottom:3px">구분</div>
-        <select onchange="updateTradeType(${idx},this.value)" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)">
+        <select data-role="type" onchange="updateTradeType(${idx},this.value)" ${isNew ? 'disabled' : ''} style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)${isNew ? ';opacity:0.7' : ''}">
           <option value="buy" ${!isSell ? 'selected' : ''}>매수</option>
           <option value="sell" ${isSell ? 'selected' : ''}>매도</option>
         </select>
@@ -2747,10 +2838,19 @@ function removeTradeRow(idx) {
 }
 
 function updateTradeAcct(idx, val) {
-  journalTrades[idx].acct = val;
-  journalTrades[idx].ticker = '';
-  journalTrades[idx].market = '';
-  journalTrades[idx].name = '';
+  if (val === '__NEW__') {
+    const name = (prompt('새 계좌명을 입력해주세요') || '').trim();
+    if (!name) { renderJournalContent(); return; }
+    journalTrades[idx].acct = name;
+  } else {
+    journalTrades[idx].acct = val;
+  }
+  // 신규 종목 행은 ticker/market/name 보존
+  if (!journalTrades[idx].isNew) {
+    journalTrades[idx].ticker = '';
+    journalTrades[idx].market = '';
+    journalTrades[idx].name = '';
+  }
   renderJournalContent();
 }
 
@@ -2785,14 +2885,85 @@ function updateTradeFx(idx, el) {
 }
 
 function addNewStockTrade() {
-  // 신규 종목은 ticker를 직접 입력
-  const ticker = prompt('종목 코드 (예: 005930, AAPL):');
-  if (!ticker) return;
-  const tick = ticker.trim().toUpperCase();
-  const mkt = detectMarket(tick);
+  // 빈 신규종목 행 추가 — 계좌/티커/단가/수량은 행 안에서 입력
   const acctNames = [...new Set(pf.map(s => s.acct).filter(Boolean))];
-  const acct = acctNames.length === 1 ? acctNames[0] : (prompt('계좌명:') || '').trim();
-  journalTrades.push({ acct, ticker: tick, market: mkt, name: '', type: 'buy', qty: 0, price: 0, avgFx: 0, realized: 0, isNew: true });
+  const acct = acctNames.length === 1 ? acctNames[0] : '';
+  journalTrades.push({ acct, ticker: '', market: '', name: '', type: 'buy', qty: 0, price: 0, avgFx: 0, realized: 0, isNew: true });
+  renderJournalContent();
+  // 새로 추가된 행의 ticker input에 포커스
+  setTimeout(() => {
+    const list = document.getElementById('j-trades-list');
+    if (!list) return;
+    const last = list.children[list.children.length - 1];
+    const tickerInput = last && last.querySelector('input[data-role="ticker"]');
+    if (tickerInput) tickerInput.focus();
+  }, 50);
+}
+
+// 신규종목 ticker 입력 (oninput) — 매수가 자동입력 방지 위해 재렌더 안 함
+function updateNewTradeTicker(idx, val) {
+  const t = journalTrades[idx];
+  const tick = (val || '').trim().toUpperCase();
+  t.ticker = tick;
+  t.market = detectMarket(tick);
+  // 자동 결정되는 이름은 즉시 채워두기
+  if (t.market === 'GOLD') t.name = '금현물(XAU)';
+  else if (t.market === 'SILVER') t.name = '은현물(XAG)';
+  else if (t.market === 'MANUAL') t.name = tick;
+  else t.name = '';
+}
+
+// 신규종목 ticker 확정 (onblur) — 시장 재판정 + 이름 비동기 조회 후 재렌더
+async function lookupNewTradeName(idx) {
+  const t = journalTrades[idx];
+  if (!t || !t.isNew || !t.ticker) return;
+  t.market = detectMarket(t.ticker);
+  // KR/US만 외부 조회
+  if (t.market === 'KR' || t.market === 'US') {
+    try {
+      let name = null;
+      if (t.market === 'KR') {
+        const code = t.ticker.replace(/\D/g,'').padStart(6,'0');
+        if (appKey && appSecret) {
+          const tok = await getToken();
+          if (tok) {
+            for (const ptype of ['300','301','302']) {
+              try {
+                const r = await fetch('/api/kis/uapi/domestic-stock/v1/quotations/search-stock-info?PDNO='+code+'&PRDT_TYPE_CD='+ptype, {
+                  headers: { 'content-type': 'application/json; charset=utf-8', 'authorization': 'Bearer '+tok, 'appkey': appKey, 'appsecret': appSecret, 'tr_id': 'CTPF1002R', 'custtype': 'P' }
+                });
+                const d = await r.json();
+                if (d?.output?.prdt_abrv_name) { name = d.output.prdt_abrv_name; break; }
+              } catch(e) {}
+            }
+          }
+        }
+        if (!name) {
+          for (const suffix of ['.KS', '.KQ']) {
+            try {
+              const r = await fetch(`/api/quote?symbol=${code}${suffix}&market=KR`);
+              const d = await r.json();
+              if (d.name) { name = d.name; break; }
+            } catch(e) {}
+          }
+        }
+      } else {
+        if (appKey && appSecret) {
+          const tok = await getToken();
+          const kisName = await kisLookupName('US', t.ticker, tok);
+          if (kisName) name = kisName;
+        }
+        if (!name) {
+          try {
+            const r = await fetch('/api/stock-name?symbol=' + encodeURIComponent(t.ticker));
+            const d = await r.json();
+            if (d.name) name = d.name;
+          } catch(e) {}
+        }
+      }
+      if (name) t.name = name.trim();
+    } catch (e) {}
+  }
   renderJournalContent();
 }
 
