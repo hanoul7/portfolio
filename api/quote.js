@@ -64,6 +64,33 @@ export default async function handler(req, res) {
     }
     return null;
   })() : Promise.resolve(null);
+
+  // KR 전용: 네이버 금융 시간외 가격 보강 — Yahoo는 한국주식 장전/장후 시간외를 미제공
+  // 장전 시간외 종가(08:30~08:40), 장후 시간외 종가(15:40~16:00), 시간외 단일가(16:00~18:00)
+  const krCode = market === 'KR' ? symbol.replace(/\.(KS|KQ)$/i, '') : null;
+  const naverPromise = market === 'KR' && /^\d{6}$/.test(krCode || '') ? (async () => {
+    try {
+      const r = await fetchWithTimeout(
+        `https://polling.finance.naver.com/api/realtime/domestic/stock/${krCode}`,
+        3000
+      );
+      if (!r.ok) return null;
+      const d = await r.json();
+      const s = d?.datas?.[0];
+      // nv: 현재가(시간외 반영), sv: 전일종가, nm: 종목명, ms: 마켓상태
+      if (s?.nv && Number(s.nv) > 0) {
+        return {
+          price: Number(s.nv),
+          prevClose: Number(s.sv) || null,
+          name: s.nm || null,
+          ms: s.ms || null,
+        };
+      }
+    } catch(e) {
+      console.log(`[quote] ${symbol} naver fail: ${e.message}`);
+    }
+    return null;
+  })() : Promise.resolve(null);
   for (const url of urls) {
     try {
       const r = await fetchWithTimeout(url, 8000);
@@ -96,10 +123,24 @@ export default async function handler(req, res) {
         const kst1530Price = await kst1530Promise;
         if (market === 'US') console.log(`[quote] ${symbol} kst1530Price: $${kst1530Price} (state: ${marketState})`);
 
+        // KR 종목: 네이버 시간외 가격으로 덮어쓰기 (정규장 외 시간엔 yahoo가 stale)
+        let finalPrice = price;
+        let finalPrevClose = meta.chartPreviousClose || meta.previousClose;
+        let finalName = meta.longName || meta.shortName || null;
+        if (market === 'KR') {
+          const nv = await naverPromise;
+          if (nv) {
+            console.log(`[quote] ${symbol} naver override: ${nv.price} (yahoo: ${price}, ms: ${nv.ms})`);
+            finalPrice = nv.price;
+            if (nv.prevClose) finalPrevClose = nv.prevClose;
+            if (nv.name) finalName = nv.name;
+          }
+        }
+
         return res.json({
-          price,
-          prevClose: meta.chartPreviousClose || meta.previousClose,
-          name: meta.longName || meta.shortName || null,
+          price: finalPrice,
+          prevClose: finalPrevClose,
+          name: finalName,
           currency: meta.currency,
           marketState,
           ...(kst1530Price != null && { kst1530Price })
@@ -108,6 +149,21 @@ export default async function handler(req, res) {
       errors.push(`${url.split('/')[2]}: price missing (status ${r.status})`);
     } catch(e) {
       errors.push(`${url.split('/')[2]}: ${e.message}`);
+    }
+  }
+
+  // Yahoo 전체 실패 — KR이면 네이버만으로라도 응답
+  if (market === 'KR') {
+    const nv = await naverPromise;
+    if (nv) {
+      console.log(`[quote] ${symbol} yahoo failed, naver fallback: ${nv.price}`);
+      return res.json({
+        price: nv.price,
+        prevClose: nv.prevClose,
+        name: nv.name,
+        currency: 'KRW',
+        marketState: 'CLOSED',
+      });
     }
   }
 
