@@ -3616,7 +3616,9 @@ function getBigTradeDates(agg) {
 // journalLog을 시간순으로 재생해 각 종목의 avg/avgFx를 정확히 재산출
 // - avg: 수량 가중평균 (수학적으로 옳음)
 // - avgFx: USD 금액(수량×단가) 가중평균 (sCost = avg×avgFx×qty 식이 정확히 성립)
-// - 일지에 없는 거래(종목추가 모달 등)가 섞인 종목은 수량 불일치로 감지해 스킵
+// - 종목 첫 거래의 prev 값을 "초기 상태"로 사용 → 종목추가 모달로 들어간
+//   사전 보유분(수기 입력 환율 포함)도 자동으로 반영됨
+// - 일지에 한 번도 등장하지 않은 종목은 그대로 유지(종목추가만으로 들어간 종목)
 function recomputeStocksFromJournal() {
   const sortedEntries = [...journalLog].sort((a, b) => {
     const da = (a.date || '') + ' ' + (a.time || '');
@@ -3630,7 +3632,21 @@ function recomputeStocksFromJournal() {
       if (!t.ticker || !(t.qty > 0) || !(t.price > 0)) continue;
       const key = (t.acct || '') + '|' + t.ticker;
       let st = sim.get(key);
-      if (!st) { st = { qty: 0, avg: 0, market: t.market, krwInvested: 0, usdInvested: 0 }; sim.set(key, st); }
+      if (!st) {
+        // 첫 거래 — prevQty/prevAvg/prevAvgFx를 초기 보유분으로 채택
+        // (종목추가 모달로 미리 입력한 수량/평단/환율이 여기 들어있음)
+        const initQty = t.prevQty || 0;
+        const initAvg = t.prevAvg || 0;
+        const initAvgFx = t.prevAvgFx || 0;
+        st = { qty: initQty, avg: initAvg, market: t.market, krwInvested: 0, usdInvested: 0 };
+        // US 초기 보유분이 있으면 KRW/USD 누적에도 반영 (수기 입력 환율 기준)
+        if (st.market === 'US' && initQty > 0 && initAvgFx > 0) {
+          const initUsd = initAvg * initQty;
+          st.usdInvested = initUsd;
+          st.krwInvested = initUsd * initAvgFx;
+        }
+        sim.set(key, st);
+      }
       if (t.type === 'buy') {
         const newCost = t.price * t.qty;
         const newQty = st.qty + t.qty;
@@ -3679,7 +3695,7 @@ function recalculateFromJournal() {
     alert('재산출할 거래 기록이 없습니다.');
     return;
   }
-  const msg = `거래 일지(${journalLog.length}건)를 기준으로 모든 종목의 매입평단·평균환율을 처음부터 다시 계산합니다.\n\n• 평균환율은 USD 금액 가중평균 적용 (현재 수량 가중치)\n• 일지에 없는 거래(종목추가 모달)가 섞인 종목은 자동 스킵\n\n진행할까요?`;
+  const msg = `거래 일지(${journalLog.length}건)를 기준으로 모든 종목의 매입평단·평균환율을 처음부터 다시 계산합니다.\n\n• 평균환율은 USD 금액 가중평균 적용 (현재 수량 가중치)\n• 종목추가 모달로 사전 입력한 수량·환율은 첫 거래의 prev 값으로 초기 보유분에 자동 반영\n• 일지에 한 번도 등장하지 않은 종목은 그대로 유지\n\n진행할까요?`;
   if (!confirm(msg)) return;
   const result = recomputeStocksFromJournal();
   save();
