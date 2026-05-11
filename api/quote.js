@@ -77,15 +77,40 @@ export default async function handler(req, res) {
       if (!r.ok) return null;
       const d = await r.json();
       const s = d?.datas?.[0];
-      // nv: 현재가(시간외 반영), sv: 전일종가, nm: 종목명, ms: 마켓상태
-      if (s?.nv && Number(s.nv) > 0) {
-        return {
-          price: Number(s.nv),
-          prevClose: Number(s.sv) || null,
-          name: s.nm || null,
-          ms: s.ms || null,
-        };
+      if (!s) return null;
+      // 콤마 포함 문자열을 숫자로 ("286,000" → 286000)
+      const num = (v) => {
+        if (v == null) return null;
+        const n = Number(String(v).replace(/,/g, ''));
+        return Number.isFinite(n) && n > 0 ? n : null;
+      };
+      const regular = num(s.closePriceRaw) || num(s.closePrice);
+      const over = num(s.overMarketPriceInfo?.overPrice);
+      // 정규장 운영 중이면 regular, 시간외 운영 중이면 over 우선
+      let price;
+      if (s.marketStatus === 'OPEN') {
+        price = regular;
+      } else if (s.overMarketPriceInfo?.overMarketStatus === 'OPEN' && over) {
+        price = over;
+      } else {
+        price = regular || over;
       }
+      if (!price) return null;
+      // 전일종가 = 현재가 - 부호 적용된 등락폭 (code 4/5는 하락)
+      const deltaCode = s.compareToPreviousPrice?.code;
+      const deltaAbs = num(s.compareToPreviousClosePriceRaw) || num(s.compareToPreviousClosePrice) || 0;
+      const signedDelta = (deltaCode === '4' || deltaCode === '5') ? -deltaAbs : deltaAbs;
+      const prevClose = regular ? regular - signedDelta : null;
+      return {
+        price,
+        prevClose,
+        name: s.stockName || null,
+        regular,
+        over,
+        sessionType: s.overMarketPriceInfo?.tradingSessionType || null,
+        marketStatus: s.marketStatus || null,
+        overStatus: s.overMarketPriceInfo?.overMarketStatus || null,
+      };
     } catch(e) {
       console.log(`[quote] ${symbol} naver fail: ${e.message}`);
     }
@@ -130,7 +155,7 @@ export default async function handler(req, res) {
         if (market === 'KR') {
           const nv = await naverPromise;
           if (nv) {
-            console.log(`[quote] ${symbol} naver override: ${nv.price} (yahoo: ${price}, ms: ${nv.ms})`);
+            console.log(`[quote] ${symbol} naver override: ${nv.price} (yahoo: ${price}, regular: ${nv.regular}, over: ${nv.over}, session: ${nv.sessionType}, mkt: ${nv.marketStatus}/${nv.overStatus})`);
             finalPrice = nv.price;
             if (nv.prevClose) finalPrevClose = nv.prevClose;
             if (nv.name) finalName = nv.name;
