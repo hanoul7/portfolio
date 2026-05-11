@@ -3620,10 +3620,13 @@ function getBigTradeDates(agg) {
 //   사전 보유분(수기 입력 환율 포함)도 자동으로 반영됨
 // - 일지에 한 번도 등장하지 않은 종목은 그대로 유지(종목추가만으로 들어간 종목)
 function recomputeStocksFromJournal() {
+  // ⚠️ 저장 시점(entry.id = Date.now())으로 정렬해야 prevQty/prevAvg/prevAvgFx와 일관성이 맞음.
+  // entry.date로 정렬하면 사용자가 일자를 수정하거나 날짜 버그로 잘못 저장된 케이스에서
+  // prev* 값이 실제 저장 순서가 아닌 다른 거래를 가리켜 잘못된 초기 상태를 잡게 됨.
   const sortedEntries = [...journalLog].sort((a, b) => {
-    const da = (a.date || '') + ' ' + (a.time || '');
-    const db = (b.date || '') + ' ' + (b.time || '');
-    return da.localeCompare(db);
+    const ia = String(a.id || ''), ib = String(b.id || '');
+    if (ia.length !== ib.length) return ia.length - ib.length;  // 자릿수 다르면 짧은 게 작음
+    return ia.localeCompare(ib);
   });
 
   const sim = new Map(); // key: acct|ticker → { qty, avg, market, krwInvested, usdInvested }
@@ -3725,7 +3728,7 @@ function recalculateFromJournal() {
   save();
   let out = `${result.updated}개 종목 재산출 완료`;
   if (result.mismatched.length > 0) {
-    out += `\n\n수량 불일치(스킵) — 일지 거래 누적 vs 현재 보유\n`;
+    out += `\n\n수량 불일치(스킵) — 저장 시점 순\n`;
     for (const m of result.mismatched) {
       out += `\n${m.name || m.ticker}${m.acct ? ' @' + m.acct : ''}: 일지 ${m.jQty}주 / 보유 ${m.cQty}주 (${m.jQty > m.cQty ? '+' : ''}${m.jQty - m.cQty})`;
       if (m.log && m.log.length > 0) {
@@ -3734,7 +3737,7 @@ function recalculateFromJournal() {
         }
       }
     }
-    out += `\n\n중복 또는 누락된 일지 거래가 있는지 확인 후 해당 거래를 편집/삭제하고 다시 재산출하세요.\n(콘솔 로그에도 동일한 정보 출력)`;
+    out += `\n\n• 누적 수량은 저장 시점 순서 기준 (일지 모달의 날짜순과 다를 수 있음)\n• 중복/누락 거래가 보이면 해당 거래를 편집/삭제 후 다시 재산출하세요\n(콘솔 로그에도 동일 정보 출력)`;
     console.log('[재산출 수량 불일치]', result.mismatched);
   }
   alert(out);
