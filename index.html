@@ -3680,7 +3680,14 @@ function recomputeStocksFromJournal() {
     if (!st) continue;            // 일지 거래 기록 없음 — 종목추가 모달로만 들어간 종목
     if (st.qty <= 0) continue;    // 일지상 다 팔린 상태
     if (Math.abs(st.qty - s.qty) > 0.0001) {
-      mismatched.push({ ticker: s.ticker, name: s.name, acct: s.acct || '', jQty: st.qty, cQty: s.qty });
+      mismatched.push({
+        ticker: s.ticker, name: s.name, acct: s.acct || '', market: s.market,
+        jQty: st.qty, cQty: s.qty,
+        jAvg: st.avg,
+        jAvgFx: (s.market === 'US' && st.usdInvested > 0) ? st.krwInvested / st.usdInvested : 0,
+        cAvg: s.avg,
+        cAvgFx: s.avgFx || 0,
+      });
       continue;
     }
     s.avg = st.avg;
@@ -3741,6 +3748,27 @@ function recalculateFromJournal() {
     console.log('[재산출 수량 불일치]', result.mismatched);
   }
   alert(out);
+
+  // 수량 불일치 종목이 있을 때 → 일지 기준 강제 동기화 옵션 제공
+  if (result.mismatched.length > 0) {
+    const lines = result.mismatched.map(m =>
+      `• ${m.name || m.ticker}${m.acct ? '@' + m.acct : ''}: ${m.cQty}주 → ${m.jQty}주`
+    ).join('\n');
+    const forceMsg = `위 ${result.mismatched.length}개 종목을 일지 누적값으로 강제 동기화할까요?\n\n${lines}\n\n⚠️ 현재 보유 수량을 일지 누적 수량으로 덮어쓰며, 평단·평균환율도 일지 기준으로 재계산됩니다.\n실제 증권사 보유 수량과 일지가 일치할 때만 진행하세요.`;
+    if (confirm(forceMsg)) {
+      let synced = 0;
+      for (const m of result.mismatched) {
+        const s = pf.find(x => x.ticker === m.ticker && (x.acct || '') === m.acct);
+        if (!s) continue;
+        s.qty = m.jQty;
+        s.avg = m.jAvg;
+        if (m.market === 'US' && m.jAvgFx > 0) s.avgFx = m.jAvgFx;
+        synced++;
+      }
+      save();
+      alert(`${synced}개 종목 강제 동기화 완료`);
+    }
+  }
   renderJournalContent();
   render();
   if (typeof refreshAll === 'function') refreshAll();
