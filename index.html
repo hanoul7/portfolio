@@ -3677,7 +3677,7 @@ function recomputeStocksFromJournal() {
     if (!st) continue;            // 일지 거래 기록 없음 — 종목추가 모달로만 들어간 종목
     if (st.qty <= 0) continue;    // 일지상 다 팔린 상태
     if (Math.abs(st.qty - s.qty) > 0.0001) {
-      mismatched.push({ ticker: s.ticker, acct: s.acct || '', jQty: st.qty, cQty: s.qty });
+      mismatched.push({ ticker: s.ticker, name: s.name, acct: s.acct || '', jQty: st.qty, cQty: s.qty });
       continue;
     }
     s.avg = st.avg;
@@ -3685,6 +3685,30 @@ function recomputeStocksFromJournal() {
       s.avgFx = st.krwInvested / st.usdInvested;
     }
     updated++;
+  }
+
+  // 수량 불일치 종목별 거래 내역(누적 수량 포함) 첨부 — 사용자가 어느 거래가 문제인지 식별
+  for (const m of mismatched) {
+    const key = m.acct + '|' + m.ticker;
+    const log = [];
+    let runQty = 0;
+    let initSet = false;
+    for (const entry of sortedEntries) {
+      for (const t of (entry.trades || [])) {
+        if (!t.ticker || !(t.qty > 0)) continue;
+        if (((t.acct || '') + '|' + t.ticker) !== key) continue;
+        if (!initSet) {
+          runQty = t.prevQty || 0;
+          if (runQty > 0) log.push({ tag: '(초기 보유분)', sign: '', qty: runQty, running: runQty });
+          initSet = true;
+        }
+        if (t.type === 'buy') runQty += t.qty;
+        else if (t.type === 'sell') runQty -= t.qty;
+        const dt = `${(entry.date || '').slice(5)} ${entry.time || ''}`.trim();
+        log.push({ tag: dt, sign: t.type === 'buy' ? '매수' : '매도', qty: t.qty, running: runQty });
+      }
+    }
+    m.log = log;
   }
   return { updated, mismatched };
 }
@@ -3701,12 +3725,17 @@ function recalculateFromJournal() {
   save();
   let out = `${result.updated}개 종목 재산출 완료`;
   if (result.mismatched.length > 0) {
-    out += `\n\n수량 불일치(스킵):`;
-    for (const m of result.mismatched.slice(0, 8)) {
-      out += `\n  • ${m.ticker}${m.acct ? '@' + m.acct : ''}: 일지 ${m.jQty}주 vs 보유 ${m.cQty}주`;
+    out += `\n\n수량 불일치(스킵) — 일지 거래 누적 vs 현재 보유\n`;
+    for (const m of result.mismatched) {
+      out += `\n${m.name || m.ticker}${m.acct ? ' @' + m.acct : ''}: 일지 ${m.jQty}주 / 보유 ${m.cQty}주 (${m.jQty > m.cQty ? '+' : ''}${m.jQty - m.cQty})`;
+      if (m.log && m.log.length > 0) {
+        for (const l of m.log) {
+          out += `\n   ${l.tag.padEnd(14, ' ')} ${l.sign}${l.qty}주 → ${l.running}`;
+        }
+      }
     }
-    if (result.mismatched.length > 8) out += `\n  ...외 ${result.mismatched.length - 8}건`;
-    out += `\n\n해당 종목은 일지 외 거래가 섞여 자동 재산출 불가합니다.`;
+    out += `\n\n중복 또는 누락된 일지 거래가 있는지 확인 후 해당 거래를 편집/삭제하고 다시 재산출하세요.\n(콘솔 로그에도 동일한 정보 출력)`;
+    console.log('[재산출 수량 불일치]', result.mismatched);
   }
   alert(out);
   renderJournalContent();
