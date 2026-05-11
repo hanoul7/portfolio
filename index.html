@@ -2688,7 +2688,7 @@ function renderJournalContent() {
   if (journalLog.length > 0) {
     const aggForList = dailyAgg; // 위에서 이미 계산됨
     const sortedDates = [...aggForList.keys()].sort((a, b) => b.localeCompare(a));
-    html += '<div style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">';
+    html += '<div style="max-height:400px;overflow-y:auto;padding-right:2px">';
     for (const date of sortedDates) {
       const info = aggForList.get(date);
       const isExpanded = expandedJournalDays.has(date);
@@ -2699,7 +2699,8 @@ function renderJournalContent() {
       const isBig = info.totalKrw >= BIG_TRADE_KRW_THRESHOLD;
       const dayBorder = isBig ? 'var(--accent)' : 'var(--border)';
 
-      html += `<div id="journal-day-${date}" style="border:1px solid ${dayBorder};border-radius:10px;background:var(--bg3);overflow:hidden">`;
+      // block 레이아웃 — flex-shrink로 줄어들지 않도록. margin-bottom으로 카드간 간격
+      html += `<div id="journal-day-${date}" style="border:1px solid ${dayBorder};border-radius:10px;background:var(--bg3);margin-bottom:8px">`;
 
       // 일자 요약 헤더 (클릭 토글)
       html += `<div onclick="toggleJournalDay('${date}')" style="padding:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px">`;
