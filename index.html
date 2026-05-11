@@ -2581,6 +2581,7 @@ let journalEditing = null; // 수정 중인 entry {id, title, desc, date, time} 
 
 function openJournalModal(preselect) {
   journalPreselect = null;
+  currentFormDate = '';
   if (preselect) {
     journalView = 'trade';
     journalTrades = [];
@@ -2617,6 +2618,7 @@ function closeJournalModal() {
   journalTrades = [];
   journalPreselect = null;
   journalEditing = null;
+  currentFormDate = '';
 }
 
 function renderJournalContent() {
@@ -2625,9 +2627,12 @@ function renderJournalContent() {
   if (journalView === 'trade') { renderTradeInput(el); return; }
 
   // ── 일지 목록 뷰 ──
-  let html = '<div class="modal-title" style="display:flex;align-items:center;justify-content:space-between">';
+  let html = '<div class="modal-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">';
   html += '<span>포트폴리오 일지</span>';
+  html += '<div style="display:flex;gap:6px">';
+  html += '<button onclick="recalculateFromJournal()" title="거래 일지 기준 평단·평균환율 재산출" style="font-size:11px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text2);cursor:pointer;font-weight:600">🔄 재산출</button>';
   html += '<button onclick="startTradeInput()" style="font-size:12px;padding:6px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent);cursor:pointer;font-weight:600">+ 거래 기록</button>';
+  html += '</div>';
   html += '</div>';
 
   // 금년손익 추이 차트 (3개월 기본, 초과 데이터는 좌우 스크롤, 거래총액 2000만원+ 일자만 화살표)
@@ -2774,6 +2779,7 @@ function renderJournalContent() {
 function startTradeInput() {
   journalTrades = [];
   journalView = 'trade';
+  currentFormDate = '';        // 새 거래 진입 — 폼 날짜는 오늘로 시작
   renderJournalContent();
 }
 
@@ -2790,7 +2796,8 @@ function renderTradeInput(el) {
   const initTitle = journalEditing ? (journalEditing.title || '') : '';
   const initDesc = journalEditing ? (journalEditing.desc || '') : '';
   const todayStr = new Date().toISOString().slice(0, 10);
-  const initDate = journalEditing ? (journalEditing.date || todayStr) : todayStr;
+  // 우선순위: 사용자가 폼에서 고른 날짜(currentFormDate) > 편집 대상 entry.date > 오늘
+  const initDate = currentFormDate || (journalEditing ? (journalEditing.date || todayStr) : todayStr);
   // 초기 진입 시 거래일 환율 비동기 동기화 (이미 캐시되어 있으면 즉시 채워짐)
   if (initDate !== currentFormFxDate || currentFormFx <= 0) {
     setTimeout(() => syncFormFxForDate(initDate), 0);
@@ -3012,6 +3019,7 @@ const formFxCache = new Map();
 let currentFormFx = 0;          // 현재 거래 폼의 적용 환율
 let currentFormFxDate = '';     // 마지막 동기화된 날짜
 let currentFormFxLoading = false;
+let currentFormDate = '';       // 사용자가 폼에서 선택한 거래일(재렌더 후에도 유지)
 
 async function fetchUsdKrwOnDate(dateStr) {
   if (!dateStr) return null;
@@ -3092,8 +3100,11 @@ function ensureTradeFx(t) {
 }
 
 // j-date 입력 변경 핸들러 — onchange="onFormDateChange(this.value)"
-// 사용자가 직접 날짜를 바꿨으므로 기존 행의 환율도 새 날짜 기준으로 갱신
+// 사용자가 직접 날짜를 바꿨으므로 기존 행의 환율도 새 날짜 기준으로 갱신.
+// renderJournalContent가 비동기 fx 조회 완료 후 호출되어 input이 새로 만들어지는데
+// 그 직전에 currentFormDate를 갱신해야 새 input의 value가 사용자가 고른 날짜로 유지됨.
 function onFormDateChange(dateStr) {
+  currentFormDate = dateStr;
   syncFormFxForDate(dateStr, true);
 }
 
@@ -3266,14 +3277,20 @@ async function saveJournalEntry() {
     let realized = 0;
     if (t.type === 'buy') {
       if (existing) {
-        const totalCost = existing.avg * existing.qty + t.price * t.qty;
-        const totalQty = existing.qty + t.qty;
-        existing.avg = totalCost / totalQty;
+        const oldAvg = existing.avg;
         const oldQty = existing.qty;
+        const oldAvgFx = existing.avgFx || 0;
+        const totalQty = oldQty + t.qty;
+        existing.avg = (oldAvg * oldQty + t.price * t.qty) / totalQty;
         existing.qty = totalQty;
+        // avgFx: USD 금액(=수량×단가) 가중평균 — sCost = avg×avgFx×qty 식이 정확히 성립
         if (t.market === 'US' && t.avgFx > 0) {
-          const totalFxCost = (existing.avgFx || usdkrw) * oldQty + t.avgFx * t.qty;
-          existing.avgFx = totalFxCost / totalQty;
+          const oldUsd = oldAvg * oldQty;
+          const newUsd = t.price * t.qty;
+          const oldKrw = (oldAvgFx > 0 ? oldAvgFx : (usdkrw > 0 ? usdkrw : t.avgFx)) * oldUsd;
+          const newKrw = t.avgFx * newUsd;
+          const totalUsd = oldUsd + newUsd;
+          if (totalUsd > 0) existing.avgFx = (oldKrw + newKrw) / totalUsd;
         }
       } else {
         const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
@@ -3344,6 +3361,7 @@ async function saveJournalEntry() {
   journalView = 'list';
   journalTrades = [];
   journalEditing = null;
+  currentFormDate = '';
   render();
   renderJournalContent();
   if (appKey && appSecret) refreshAll();
@@ -3366,24 +3384,30 @@ function cancelTradeInput() {
   journalView = 'list';
   journalTrades = [];
   journalEditing = null;
+  currentFormDate = '';
   render();
   renderJournalContent();
 }
 
-// entry 효과를 pf/yearAccounts에 재적용 (편집 취소 복원용)
+// entry 효과를 pf/yearAccounts에 재적용 (편집 취소 복원용) — saveJournalEntry와 동일 USD 가중 로직
 function applyEntryEffect(entry) {
   for (const t of entry.trades) {
     const existing = pf.find(s => s.ticker === t.ticker && (s.acct || '') === (t.acct || ''));
     if (t.type === 'buy') {
       if (existing) {
-        const totalCost = existing.avg * existing.qty + t.price * t.qty;
-        const totalQty = existing.qty + t.qty;
-        existing.avg = totalCost / totalQty;
+        const oldAvg = existing.avg;
         const oldQty = existing.qty;
+        const oldAvgFx = existing.avgFx || 0;
+        const totalQty = oldQty + t.qty;
+        existing.avg = (oldAvg * oldQty + t.price * t.qty) / totalQty;
         existing.qty = totalQty;
         if (t.market === 'US' && t.avgFx > 0) {
-          const totalFxCost = (existing.avgFx || usdkrw) * oldQty + t.avgFx * t.qty;
-          existing.avgFx = totalFxCost / totalQty;
+          const oldUsd = oldAvg * oldQty;
+          const newUsd = t.price * t.qty;
+          const oldKrw = (oldAvgFx > 0 ? oldAvgFx : (usdkrw > 0 ? usdkrw : t.avgFx)) * oldUsd;
+          const newKrw = t.avgFx * newUsd;
+          const totalUsd = oldUsd + newUsd;
+          if (totalUsd > 0) existing.avgFx = (oldKrw + newKrw) / totalUsd;
         }
       } else {
         const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
@@ -3522,6 +3546,7 @@ function editJournalEntry(entryId) {
     date: entry.date, time: entry.time, originalEntry
   };
   journalView = 'trade';
+  currentFormDate = '';  // 편집 진입 — initDate 산출에서 journalEditing.date를 우선 사용
   render();
   renderJournalContent();
 }
@@ -3586,6 +3611,91 @@ function getBigTradeDates(agg) {
     if (info.totalKrw >= BIG_TRADE_KRW_THRESHOLD) set.add(date);
   }
   return set;
+}
+
+// journalLog을 시간순으로 재생해 각 종목의 avg/avgFx를 정확히 재산출
+// - avg: 수량 가중평균 (수학적으로 옳음)
+// - avgFx: USD 금액(수량×단가) 가중평균 (sCost = avg×avgFx×qty 식이 정확히 성립)
+// - 일지에 없는 거래(종목추가 모달 등)가 섞인 종목은 수량 불일치로 감지해 스킵
+function recomputeStocksFromJournal() {
+  const sortedEntries = [...journalLog].sort((a, b) => {
+    const da = (a.date || '') + ' ' + (a.time || '');
+    const db = (b.date || '') + ' ' + (b.time || '');
+    return da.localeCompare(db);
+  });
+
+  const sim = new Map(); // key: acct|ticker → { qty, avg, market, krwInvested, usdInvested }
+  for (const entry of sortedEntries) {
+    for (const t of (entry.trades || [])) {
+      if (!t.ticker || !(t.qty > 0) || !(t.price > 0)) continue;
+      const key = (t.acct || '') + '|' + t.ticker;
+      let st = sim.get(key);
+      if (!st) { st = { qty: 0, avg: 0, market: t.market, krwInvested: 0, usdInvested: 0 }; sim.set(key, st); }
+      if (t.type === 'buy') {
+        const newCost = t.price * t.qty;
+        const newQty = st.qty + t.qty;
+        st.avg = newQty > 0 ? (st.avg * st.qty + newCost) / newQty : 0;
+        if (st.market === 'US' && t.avgFx > 0) {
+          st.krwInvested += t.avgFx * newCost;
+          st.usdInvested += newCost;
+        }
+        st.qty = newQty;
+      } else if (t.type === 'sell') {
+        const sellQty = Math.min(t.qty, st.qty);
+        if (st.qty > 0 && st.market === 'US' && st.usdInvested > 0) {
+          // 매도 분만큼 비례하여 누적 KRW/USD 감소 (avgFx는 불변)
+          const ratio = (st.qty - sellQty) / st.qty;
+          st.krwInvested *= ratio;
+          st.usdInvested *= ratio;
+        }
+        st.qty -= sellQty;
+      }
+    }
+  }
+
+  let updated = 0;
+  const mismatched = [];
+  for (const s of pf) {
+    const key = (s.acct || '') + '|' + s.ticker;
+    const st = sim.get(key);
+    if (!st) continue;            // 일지 거래 기록 없음 — 종목추가 모달로만 들어간 종목
+    if (st.qty <= 0) continue;    // 일지상 다 팔린 상태
+    if (Math.abs(st.qty - s.qty) > 0.0001) {
+      mismatched.push({ ticker: s.ticker, acct: s.acct || '', jQty: st.qty, cQty: s.qty });
+      continue;
+    }
+    s.avg = st.avg;
+    if (s.market === 'US' && st.usdInvested > 0) {
+      s.avgFx = st.krwInvested / st.usdInvested;
+    }
+    updated++;
+  }
+  return { updated, mismatched };
+}
+
+// '재산출' 버튼 핸들러
+function recalculateFromJournal() {
+  if (!journalLog || journalLog.length === 0) {
+    alert('재산출할 거래 기록이 없습니다.');
+    return;
+  }
+  const msg = `거래 일지(${journalLog.length}건)를 기준으로 모든 종목의 매입평단·평균환율을 처음부터 다시 계산합니다.\n\n• 평균환율은 USD 금액 가중평균 적용 (현재 수량 가중치)\n• 일지에 없는 거래(종목추가 모달)가 섞인 종목은 자동 스킵\n\n진행할까요?`;
+  if (!confirm(msg)) return;
+  const result = recomputeStocksFromJournal();
+  save();
+  let out = `${result.updated}개 종목 재산출 완료`;
+  if (result.mismatched.length > 0) {
+    out += `\n\n수량 불일치(스킵):`;
+    for (const m of result.mismatched.slice(0, 8)) {
+      out += `\n  • ${m.ticker}${m.acct ? '@' + m.acct : ''}: 일지 ${m.jQty}주 vs 보유 ${m.cQty}주`;
+    }
+    if (result.mismatched.length > 8) out += `\n  ...외 ${result.mismatched.length - 8}건`;
+    out += `\n\n해당 종목은 일지 외 거래가 섞여 자동 재산출 불가합니다.`;
+  }
+  alert(out);
+  renderJournalContent();
+  render();
+  if (typeof refreshAll === 'function') refreshAll();
 }
 
 // 일별 카드 펼침 상태 (모달 닫혀도 세션 동안 유지)
