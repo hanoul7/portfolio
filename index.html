@@ -2791,10 +2791,14 @@ function renderTradeInput(el) {
   const initDesc = journalEditing ? (journalEditing.desc || '') : '';
   const todayStr = new Date().toISOString().slice(0, 10);
   const initDate = journalEditing ? (journalEditing.date || todayStr) : todayStr;
+  // 초기 진입 시 거래일 환율 비동기 동기화 (이미 캐시되어 있으면 즉시 채워짐)
+  if (initDate !== currentFormFxDate || currentFormFx <= 0) {
+    setTimeout(() => syncFormFxForDate(initDate), 0);
+  }
   html += '<div style="margin-bottom:12px">';
   html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
     <label style="font-size:11px;color:var(--text3);white-space:nowrap">거래 날짜</label>
-    <input type="date" id="j-date" value="${initDate}" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1);font-family:var(--mono)" />
+    <input type="date" id="j-date" value="${initDate}" onchange="onFormDateChange(this.value)" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1);font-family:var(--mono)" />
   </div>`;
   html += `<input id="j-title" placeholder="제목 (자동 생성됨)" value="${initTitle.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text1);margin-bottom:6px" />`;
   html += `<input id="j-desc" placeholder="설명 (선택)" value="${initDesc.replace(/"/g,'&quot;')}" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text2)" />`;
@@ -2926,10 +2930,13 @@ function renderTradeRow(trade, idx) {
       </div>
     </div>
     ${trade.market === 'US' ? (() => {
-      const fxNow = trade.avgFx > 0 ? trade.avgFx : (usdkrw > 0 ? usdkrw : 1380);
+      const fxNow = trade.avgFx > 0 ? trade.avgFx : (currentFormFx > 0 ? currentFormFx : (usdkrw > 0 ? usdkrw : 0));
       const krwTotal = (trade.qty || 0) * (trade.price || 0) * fxNow;
+      const fxLabel = fxNow > 0
+        ? `<span style="color:var(--text2);font-weight:600;font-family:var(--mono)">${fxNow.toLocaleString('ko-KR', {maximumFractionDigits:2})}원/$</span>`
+        : (currentFormFxLoading ? '<span style="color:var(--text3)">조회 중…</span>' : '<span style="color:var(--down)">조회 실패</span>');
       return `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--text3)">
-        <span>적용 환율 <span style="color:var(--text2);font-weight:600;font-family:var(--mono)">${fxNow.toLocaleString('ko-KR', {maximumFractionDigits:2})}원/$</span></span>
+        <span>거래일 환율 ${fxLabel}</span>
         ${krwTotal > 0 ? `<span>· 원화 ${isSell ? '매도' : '매수'}금액 <span style="color:var(--text);font-weight:600;font-family:var(--mono)">${fmtKr(krwTotal)}원</span></span>` : ''}
       </div>`;
     })() : ''}
@@ -2999,12 +3006,95 @@ function updateTradeFx(idx, el) {
   journalTrades[idx].avgFx = commaVal(el);
 }
 
-// 거래에 US 환율이 비어 있으면 현재 usdkrw로 자동 채움 (장 마감/주말 등 0인 경우 1380 폴백)
+// ── 거래일 환율 자동 조회 (수기 입력 대체) ──
+// dateStr별로 1회만 API 호출 후 메모리 캐시
+const formFxCache = new Map();
+let currentFormFx = 0;          // 현재 거래 폼의 적용 환율
+let currentFormFxDate = '';     // 마지막 동기화된 날짜
+let currentFormFxLoading = false;
+
+async function fetchUsdKrwOnDate(dateStr) {
+  if (!dateStr) return null;
+  if (formFxCache.has(dateStr)) return formFxCache.get(dateStr);
+
+  // 오늘이면 이미 갖고 있는 usdkrw 사용
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (dateStr === todayStr && usdkrw > 0) {
+    formFxCache.set(dateStr, usdkrw);
+    return usdkrw;
+  }
+
+  // 거래일 ~ 오늘 사이 거리에 맞춰 range 결정
+  const tradeDate = new Date(dateStr);
+  if (isNaN(tradeDate.getTime())) return null;
+  const days = Math.max(7, Math.ceil((Date.now() - tradeDate.getTime()) / 86400000) + 7);
+  let range = '3mo';
+  if (days > 90) range = '6mo';
+  if (days > 180) range = '1y';
+  if (days > 365) range = '2y';
+  if (days > 730) range = '5y';
+  if (days > 1825) range = '10y';
+
+  try {
+    const r = await fetch(`/api/chart-history?symbol=${encodeURIComponent('KRW=X')}&range=${range}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j.data || j.data.length === 0) return null;
+    // 거래일 또는 그 이전 가장 최근 영업일 종가
+    let best = null;
+    for (const p of j.data) {
+      if (p.date <= dateStr && p.close > 0) {
+        if (!best || p.date > best.date) best = p;
+      }
+    }
+    if (best) {
+      const v = Math.round(best.close * 100) / 100;
+      formFxCache.set(dateStr, v);
+      return v;
+    }
+  } catch (e) { console.warn('[fxOnDate]', dateStr, e); }
+  return null;
+}
+
+// 거래 폼의 환율을 해당 날짜로 동기화 (비동기). 완료 시 폼 재렌더로 표시 갱신
+// override=true: 기존 avgFx도 덮어씀 (사용자가 명시적으로 날짜를 변경했을 때)
+// override=false: 비어있는 행만 채움 (편집 진입 시 원본 보존)
+async function syncFormFxForDate(dateStr, override) {
+  if (!dateStr) dateStr = new Date().toISOString().slice(0, 10);
+  if (!override && dateStr === currentFormFxDate && currentFormFx > 0) return;
+  currentFormFxDate = dateStr;
+  currentFormFxLoading = true;
+  const fx = await fetchUsdKrwOnDate(dateStr);
+  currentFormFxLoading = false;
+  if (fx && fx > 0) {
+    currentFormFx = fx;
+    for (const t of journalTrades) {
+      if (t.market === 'US' && (override || !t.avgFx || t.avgFx <= 0)) t.avgFx = fx;
+    }
+    if (journalView === 'trade') renderJournalContent();
+  } else if (journalView === 'trade') {
+    renderJournalContent();
+  }
+}
+
+// 거래 행의 환율이 비어 있으면 적절한 값으로 자동 채움
+// 우선순위: 폼의 거래일 환율(currentFormFx) > 현재 usdkrw
+// 1380 같은 하드코딩 폴백은 사용하지 않음 — 저장 시 await로 정확한 거래일 환율 확보
 function ensureTradeFx(t) {
   if (!t || t.market !== 'US') return;
   if (t.avgFx && t.avgFx > 0) return;
-  const fx = usdkrw > 0 ? usdkrw : 1380;
-  t.avgFx = Math.round(fx * 100) / 100;
+  if (currentFormFx > 0) {
+    t.avgFx = Math.round(currentFormFx * 100) / 100;
+  } else if (usdkrw > 0) {
+    t.avgFx = Math.round(usdkrw * 100) / 100;
+  }
+  // 그래도 0이면 저장 단계에서 await fetchUsdKrwOnDate로 보정
+}
+
+// j-date 입력 변경 핸들러 — onchange="onFormDateChange(this.value)"
+// 사용자가 직접 날짜를 바꿨으므로 기존 행의 환율도 새 날짜 기준으로 갱신
+function onFormDateChange(dateStr) {
+  syncFormFxForDate(dateStr, true);
 }
 
 function addNewStockTrade() {
@@ -3107,12 +3197,29 @@ function generateJournalTitle(trades) {
   return parts.join(', ');
 }
 
-function saveJournalEntry() {
+async function saveJournalEntry() {
   // 유효성 검사: 매도는 보유 없어도 기록 허용(평단=prevAvg) 필요하므로 qty/price만 체크
   const validTrades = journalTrades.filter(t => t.ticker && t.qty > 0 && t.price > 0);
   if (validTrades.length === 0) { alert('유효한 거래가 없습니다.'); return; }
-  // US 거래 환율 누락 시 현재 usdkrw로 자동 채움 (수기 입력 불필요)
+  // 거래일 환율 확보 — 미설정 US 거래가 있으면 입력 날짜의 환율을 await로 조회
+  const dateForFx = (document.getElementById('j-date') && document.getElementById('j-date').value) || new Date().toISOString().slice(0, 10);
+  const needFx = validTrades.some(t => t.market === 'US' && (!t.avgFx || t.avgFx <= 0));
+  if (needFx) {
+    const histFx = await fetchUsdKrwOnDate(dateForFx);
+    if (histFx && histFx > 0) {
+      for (const t of validTrades) {
+        if (t.market === 'US' && (!t.avgFx || t.avgFx <= 0)) t.avgFx = histFx;
+      }
+    }
+  }
+  // 그래도 누락된 경우 마지막 폴백 (currentFormFx → usdkrw)
   for (const t of validTrades) ensureTradeFx(t);
+  // 끝까지 0이면 사용자에게 경고
+  const stillMissing = validTrades.filter(t => t.market === 'US' && (!t.avgFx || t.avgFx <= 0));
+  if (stillMissing.length > 0) {
+    alert(`미국 종목 거래의 환율을 가져오지 못했습니다 (${dateForFx}). 네트워크 상태를 확인해주세요.`);
+    return;
+  }
 
   const titleEl = document.getElementById('j-title');
   const descEl = document.getElementById('j-desc');
