@@ -604,7 +604,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       <div class="card-sub" id="s-pct">—</div>
     </div>
     <div class="card" id="today-card" style="transition:background 0.3s;cursor:pointer" onclick="showTodayDetail()">
-      <div class="card-label">오늘 손익 <span style="font-size:9px;color:var(--text3);font-weight:400">(KST 09:00 기준)</span></div>
+      <div class="card-label">오늘 손익 <span id="today-baseline-label" style="font-size:9px;color:var(--text3);font-weight:400">(국장 마감 기준)</span></div>
       <div class="card-value sm" id="s-today">—</div>
       <div class="card-sub" id="s-time">—</div>
     </div>
@@ -837,6 +837,19 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   </div>
 </div>
 
+<!-- 손익 추이 확대 모달 -->
+<div class="modal-overlay" id="chart-zoom-modal">
+  <div class="modal" style="max-width:1200px;max-height:96vh">
+    <div class="modal-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px">
+      <span class="modal-title" style="margin:0">금년 손익 추이 (확대)</span>
+      <button onclick="closeChartZoom()" style="font-size:18px;padding:4px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text2);cursor:pointer">×</button>
+    </div>
+    <div id="chart-zoom-content"></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center">▼ 큰 거래 화살표 클릭시 거래 이력으로 이동</div>
+  </div>
+</div>
+
 <script>
 // ── 상태 ──
 let pf = [];
@@ -873,6 +886,7 @@ async function init() {
   loadToken();
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
+  updateBaselineLabel();
   render();
   updateHeaderHeight();
   fetchRate().then(() => fetchIndices());
@@ -1315,6 +1329,15 @@ async function fetchUS(ticker) {
   return null;
 }
 
+// 모드별 표시 라벨 — '오늘 손익' 카드 부제목에 노출
+function getBaselineLabelText() {
+  return usBaselineMode === 'lastClose' ? '(HTS 기준)' : '(국장 마감 기준)';
+}
+function updateBaselineLabel() {
+  const el = document.getElementById('today-baseline-label');
+  if (el) el.textContent = getBaselineLabelText();
+}
+
 // 모드 토글 — 캐시된 px 재계산 후 렌더
 function setUSBaselineMode(mode) {
   if (mode !== 'kst1530' && mode !== 'lastClose') return;
@@ -1330,6 +1353,7 @@ function setUSBaselineMode(mode) {
     p.prevClose = basePrice;
     p.changeRatio = basePrice ? ((d.price - basePrice) / basePrice) * 100 : 0;
   }
+  updateBaselineLabel();
   render();
   if (document.getElementById('today-detail-modal').classList.contains('open')) showTodayDetail();
 }
@@ -1945,7 +1969,7 @@ function showTodayDetail() {
   const toggleHtml = `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
       <span style="font-size:10px;color:var(--text3);margin-right:2px">미장 기준</span>
-      <button onclick="setUSBaselineMode('kst1530')" style="${btnStyle(usBaselineMode === 'kst1530')}">KST 15:30</button>
+      <button onclick="setUSBaselineMode('kst1530')" style="${btnStyle(usBaselineMode === 'kst1530')}">국장 마감</button>
       <button onclick="setUSBaselineMode('lastClose')" style="${btnStyle(usBaselineMode === 'lastClose')}">HTS</button>
     </div>`;
   const html = `${toggleHtml}<div style="padding:4px 0">
@@ -2520,6 +2544,19 @@ function openChartModal() {
 }
 function closeChartModal() { document.getElementById('chart-modal').classList.remove('open'); }
 
+// 손익 추이 확대 모달 — 큰 폰트/넓은 간격으로 다시 렌더, 좌우 스크롤
+function openChartZoom() {
+  if (!dailyPnl || dailyPnl.length < 2) return;
+  const chartData = dailyPnl.map(d => ({ date: d.date, value: d.value, journalId: d.journalId || null }));
+  const bigIds = getBigTradeIds();
+  document.getElementById('chart-zoom-content').innerHTML = buildLineChart(chartData, 380, { bigTradeIds: bigIds, zoom: true });
+  document.getElementById('chart-zoom-modal').classList.add('open');
+  requestAnimationFrame(() => {
+    document.querySelectorAll('#chart-zoom-content [data-chart-scroll]').forEach(w => { w.scrollLeft = w.scrollWidth; });
+  });
+}
+function closeChartZoom() { document.getElementById('chart-zoom-modal').classList.remove('open'); }
+
 // ── 포트폴리오 일지 모달 ──
 let journalView = 'list'; // 'list' | 'trade'
 let journalTrades = []; // 거래 입력 중 임시 데이터
@@ -2575,12 +2612,19 @@ function renderJournalContent() {
   html += '<button onclick="startTradeInput()" style="font-size:12px;padding:6px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent);cursor:pointer;font-weight:600">+ 거래 기록</button>';
   html += '</div>';
 
-  // 금년손익 추이 차트
+  // 금년손익 추이 차트 (3개월 기본, 초과 데이터는 좌우 스크롤, 큰 거래만 화살표로 표시)
   if (dailyPnl.length >= 2) {
     const chartData = dailyPnl.map(d => ({ date: d.date, value: d.value, journalId: d.journalId || null }));
+    const bigIds = getBigTradeIds();
     html += '<div style="margin-bottom:16px">';
-    html += '<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:0.05em">금년 손익 추이</div>';
-    html += buildLineChart(chartData, 200);
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">';
+    html += '<div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:0.05em">금년 손익 추이</div>';
+    html += '<button onclick="openChartZoom()" title="확대" style="font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text2);cursor:pointer;font-weight:600">🔍 확대</button>';
+    html += '</div>';
+    html += buildLineChart(chartData, 220, { bigTradeIds: bigIds });
+    if (bigIds.size > 0) {
+      html += '<div style="font-size:10px;color:var(--text3);margin-top:6px;text-align:right">▼ 큰 거래 표시 — 화살표 클릭시 거래 이력으로 이동</div>';
+    }
     html += '</div>';
   } else {
     html += '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;margin-bottom:16px">손익 데이터가 쌓이면 그래프가 표시됩니다</div>';
@@ -2630,7 +2674,7 @@ function renderJournalContent() {
     for (const entry of sorted) {
       const totalRealized = entry.trades.reduce((s, t) => s + (t.realized || 0), 0);
       const realizedCls = totalRealized >= 0 ? 'var(--up)' : 'var(--down)';
-      html += `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg3)">
+      html += `<div id="journal-entry-${entry.id}" style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg3)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px">
           <div style="flex:1;min-width:0">
             <span style="font-size:13px;font-weight:600;color:var(--text)">${entry.title || '(제목 없음)'}</span>
@@ -2664,6 +2708,10 @@ function renderJournalContent() {
 
   html += '<button class="btn-secondary" onclick="closeJournalModal()" style="margin-top:16px">닫기</button>';
   el.innerHTML = html;
+  // 차트 컨테이너를 최신 데이터(우측)로 스크롤
+  requestAnimationFrame(() => {
+    el.querySelectorAll('[data-chart-scroll]').forEach(w => { w.scrollLeft = w.scrollWidth; });
+  });
 }
 
 function startTradeInput() {
@@ -3320,14 +3368,79 @@ function buildPieCSS(items, size) {
   </div>`;
 }
 
-function buildLineChart(dataPoints, height) {
+// 큰 거래(금액 기준 상위 30%, 최소 3개) ID 집합 — 차트에 화살표로만 표시
+function getBigTradeIds() {
+  if (!journalLog || journalLog.length === 0) return new Set();
+  if (journalLog.length <= 5) return new Set(journalLog.map(e => e.id));
+  const sizes = journalLog.map(e => {
+    const krw = (e.trades || []).reduce((sum, t) => {
+      const v = Math.abs((t.qty || 0) * (t.price || 0));
+      const fx = t.market === 'US' ? (t.avgFx || usdkrw || 1380) : 1;
+      return sum + v * fx;
+    }, 0);
+    return { id: e.id, krw };
+  }).sort((a, b) => b.krw - a.krw);
+  const cutoff = Math.max(3, Math.ceil(sizes.length * 0.3));
+  return new Set(sizes.slice(0, cutoff).map(x => x.id));
+}
+
+// 거래 화살표 클릭 → 일지 목록의 해당 항목으로 스크롤 + 강조
+function scrollToJournalEntry(id) {
+  // 확대 모달이 열려있으면 먼저 닫기
+  const zoom = document.getElementById('chart-zoom-modal');
+  if (zoom && zoom.classList.contains('open')) zoom.classList.remove('open');
+  // journalView가 trade면 list로 전환
+  if (journalView !== 'list') {
+    journalView = 'list';
+    renderJournalContent();
+    requestAnimationFrame(() => scrollToJournalEntry(id));
+    return;
+  }
+  const el = document.getElementById('journal-entry-' + id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.style.transition = 'box-shadow 0.4s, background 0.4s';
+  const origBg = el.style.background;
+  const origShadow = el.style.boxShadow;
+  el.style.background = 'var(--accent-dim)';
+  el.style.boxShadow = '0 0 0 2px var(--accent)';
+  setTimeout(() => { el.style.background = origBg; el.style.boxShadow = origShadow; }, 1800);
+}
+
+// 금년 손익 추이 라인 차트
+// opts:
+//   bigTradeIds: Set — 화살표로 표시할 journal id 집합 (없으면 화살표 미표시)
+//   zoom: true → 확대 모드 (폰트/패딩 크게, 픽셀당 더 넓게)
+//   pxPerPoint: 데이터 1포인트당 가로 픽셀 (기본 5, zoom 14)
+//   targetVisibleDays: 컨테이너에 한번에 보일 기본 일수 (3개월=90)
+function buildLineChart(dataPoints, height, opts) {
+  opts = opts || {};
   if (!dataPoints || dataPoints.length < 2) return '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">데이터 부족</div>';
-  const hasMarker = dataPoints.some(d => d.journalId);
-  const W = 600, H = (height || 180) + (hasMarker ? 40 : 0), PADL = 55, PADR = 30, PADT = hasMarker ? 46 : 10, PADB = 22;
+
+  const zoom = !!opts.zoom;
+  const bigTradeIds = opts.bigTradeIds || new Set();
+  const pxPerPoint = opts.pxPerPoint || (zoom ? 14 : 5);
+  const targetVisibleDays = opts.targetVisibleDays || 90;
+
+  const PADL = zoom ? 64 : 52;
+  const PADR = zoom ? 32 : 22;
+  const PADT = 44;                        // 위쪽 화살표 영역
+  const PADB = zoom ? 30 : 24;
+
+  // 데이터가 90일 미만이면 90일 폭으로(빈 공간 없이 컨테이너 채움), 이상이면 데이터 길이만큼 → 자동 스크롤
+  const widthDays = Math.max(targetVisibleDays, dataPoints.length);
+  const innerW = widthDays * pxPerPoint;
+  const W = PADL + PADR + innerW;
+  const H = (height || (zoom ? 360 : 220));
+
+  const fontSize = zoom ? 13 : 11;
+  const valueFontSize = zoom ? 16 : 12;
+  const strokeW = zoom ? 2.5 : 2;
+
   const vals = dataPoints.map(d => d.value);
   const minV = Math.min(...vals), maxV = Math.max(...vals);
   const range = maxV - minV || 1;
-  const xStep = (W - PADL - PADR) / (dataPoints.length - 1);
+  const xStep = innerW / Math.max(1, dataPoints.length - 1);
 
   const points = dataPoints.map((d, i) => ({
     x: PADL + i * xStep,
@@ -3342,56 +3455,68 @@ function buildLineChart(dataPoints, height) {
   const color = isUp ? 'var(--up)' : 'var(--down)';
   const fillColor = isUp ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)';
 
-  // 영역 채우기 path
+  // 영역 채우기
   const areaD = pathD + ` L${lastPt.x.toFixed(1)},${H - PADB} L${firstPt.x.toFixed(1)},${H - PADB} Z`;
 
-  // 0선 (금년 손익 기준선)
+  // 0선
   let zeroLine = '';
   if (minV < 0 && maxV > 0) {
     const zy = PADT + (1 - (0 - minV) / range) * (H - PADT - PADB);
-    zeroLine = `<line x1="${PADL}" y1="${zy.toFixed(1)}" x2="${W - PADR}" y2="${zy.toFixed(1)}" stroke="var(--text3)" stroke-width="0.5" stroke-dasharray="4,3" />`;
+    zeroLine = `<line x1="${PADL}" y1="${zy.toFixed(1)}" x2="${(PADL + innerW).toFixed(1)}" y2="${zy.toFixed(1)}" stroke="var(--text3)" stroke-width="0.5" stroke-dasharray="4,3" />`;
   }
 
-  // X축 날짜 라벨 (5~6개)
-  const labelStep = Math.max(1, Math.floor(dataPoints.length / 5));
+  // X축 라벨 — 데이터 많을 때 솎아냄
+  const labelTarget = zoom ? 12 : 6;
+  const labelStep = Math.max(1, Math.floor(dataPoints.length / labelTarget));
   const labels = points.filter((_, i) => i % labelStep === 0 || i === points.length - 1)
-    .map(p => `<text x="${p.x.toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="var(--text3)" font-size="9" font-family="var(--mono)">${p.date.slice(5)}</text>`).join('');
+    .map(p => `<text x="${p.x.toFixed(1)}" y="${H - 6}" text-anchor="middle" fill="var(--text3)" font-size="${fontSize}" font-family="var(--mono)">${p.date.slice(5)}</text>`).join('');
 
   // Y축 라벨
   const yLabels = [minV, (minV + maxV) / 2, maxV].map(v => {
     const y = PADT + (1 - (v - minV) / range) * (H - PADT - PADB);
-    return `<text x="${PADL - 4}" y="${y.toFixed(1) + 3}" text-anchor="end" fill="var(--text3)" font-size="9" font-family="var(--mono)">${fmtKr(v)}</text>`;
+    return `<text x="${PADL - 6}" y="${(y + fontSize / 3).toFixed(1)}" text-anchor="end" fill="var(--text3)" font-size="${fontSize}" font-family="var(--mono)">${fmtKr(v)}</text>`;
   }).join('');
 
-  // 마지막 값 표시
-  const lastLabel = `<circle cx="${lastPt.x.toFixed(1)}" cy="${lastPt.y.toFixed(1)}" r="3.5" fill="${color}" />
-    <text x="${lastPt.x.toFixed(1)}" y="${lastPt.y.toFixed(1) - 8}" text-anchor="end" fill="${color}" font-size="11" font-weight="700" font-family="var(--mono)">${fmtSign(Math.round(lastPt.value))}원</text>`;
+  // 마지막 값
+  const lastLabel = `<circle cx="${lastPt.x.toFixed(1)}" cy="${lastPt.y.toFixed(1)}" r="${zoom ? 5 : 4}" fill="${color}" />
+    <text x="${lastPt.x.toFixed(1)}" y="${(lastPt.y - 10).toFixed(1)}" text-anchor="end" fill="${color}" font-size="${valueFontSize}" font-weight="700" font-family="var(--mono)">${fmtSign(Math.round(lastPt.value))}원</text>`;
 
-  // 포트폴리오 변경일 마커 (회전된 라벨 + 전체 텍스트 툴팁)
+  // 큰 거래만 화살표로 (그래프에 직접 텍스트는 표시하지 않음)
   let markers = '';
   const escapeXml = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+  const arrowSize = zoom ? 8 : 6;
   points.forEach(p => {
-    if (p.journalId) {
-      const j = journalLog.find(x => x.id === p.journalId);
-      if (j) {
-        const totalRealized = j.trades.reduce((s, t) => s + (t.realized || 0), 0);
-        const rText = totalRealized ? ` (${fmtSign(totalRealized)})` : '';
-        const fullTitle = (j.title || '') + rText;
-        const shown = fullTitle.length > 18 ? fullTitle.slice(0, 17) + '…' : fullTitle;
-        const tx = p.x.toFixed(1), ty = (PADT - 4).toFixed(1);
-        markers += `<line x1="${tx}" y1="${PADT}" x2="${tx}" y2="${p.y.toFixed(1) - 4}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3,2" />`;
-        markers += `<g transform="translate(${tx},${ty}) rotate(-35)"><text text-anchor="start" fill="var(--accent)" font-size="8" font-family="var(--mono)"><title>${escapeXml(fullTitle)}</title>${escapeXml(shown)}</text></g>`;
-        markers += `<polygon points="${tx},${p.y.toFixed(1) - 4} ${(p.x - 3).toFixed(1)},${p.y.toFixed(1) - 10} ${(p.x + 3).toFixed(1)},${p.y.toFixed(1) - 10}" fill="var(--accent)" />`;
-      }
-    }
+    if (!p.journalId || !bigTradeIds.has(p.journalId)) return;
+    const j = journalLog.find(x => x.id === p.journalId);
+    if (!j) return;
+    const totalRealized = j.trades.reduce((s, t) => s + (t.realized || 0), 0);
+    const rText = totalRealized ? ` (실현 ${fmtSign(totalRealized)}원)` : '';
+    const tooltip = (j.title || '거래') + rText + ' — 클릭하여 보기';
+    const tx = p.x.toFixed(1);
+    const ay = PADT - 4;                   // 화살표 끝(아래)
+    const ax1 = (p.x - arrowSize).toFixed(1);
+    const ax2 = (p.x + arrowSize).toFixed(1);
+    const aTopY = (ay - arrowSize).toFixed(1);
+    // 점선 안내
+    markers += `<line x1="${tx}" y1="${(ay + 1).toFixed(1)}" x2="${tx}" y2="${(p.y - 3).toFixed(1)}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3,2" opacity="0.55" />`;
+    // 클릭 가능 화살표
+    markers += `<g style="cursor:pointer" onclick="scrollToJournalEntry('${j.id}')">
+      <rect x="${(p.x - 14).toFixed(1)}" y="${(ay - arrowSize - 4).toFixed(1)}" width="28" height="${arrowSize + 8}" fill="transparent" />
+      <polygon points="${ax1},${aTopY} ${ax2},${aTopY} ${tx},${ay}" fill="var(--accent)" stroke="var(--bg2)" stroke-width="1">
+        <title>${escapeXml(tooltip)}</title>
+      </polygon>
+    </g>`;
   });
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible">
+  const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">
     ${zeroLine}
     <path d="${areaD}" fill="${fillColor}" />
-    <path d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+    <path d="${pathD}" fill="none" stroke="${color}" stroke-width="${strokeW}" stroke-linejoin="round" stroke-linecap="round" />
     ${labels}${yLabels}${lastLabel}${markers}
   </svg>`;
+
+  // 3개월 초과 시 자동 좌우 스크롤. 컨테이너에 data-chart-scroll 부여해 렌더 후 scrollLeft = scrollWidth로 최신 위치로 이동
+  return `<div class="chart-scroll-wrap" data-chart-scroll="1" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:10px;background:var(--bg);max-width:100%">${svg}</div>`;
 }
 
 function renderChartContent() {
@@ -3601,7 +3726,7 @@ function importData(e) {
 }
 
 // ── 모달 바깥 클릭으로 닫기 ──
-['add-modal','edit-modal','api-modal','year-modal','chart-modal','journal-modal','today-detail-modal'].forEach(id => {
+['add-modal','edit-modal','api-modal','year-modal','chart-modal','journal-modal','today-detail-modal','chart-zoom-modal'].forEach(id => {
   const el = document.getElementById(id);
   let downOnOverlay = false;
   el.addEventListener('mousedown', e => { downOnOverlay = e.target === el; });
@@ -3613,6 +3738,7 @@ function importData(e) {
       else if (id === 'chart-modal') closeChartModal();
       else if (id === 'journal-modal') closeJournalModal();
       else if (id === 'today-detail-modal') document.getElementById('today-detail-modal').classList.remove('open');
+      else if (id === 'chart-zoom-modal') closeChartZoom();
       else closeApiModal();
     }
   });
@@ -3620,7 +3746,8 @@ function importData(e) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('today-detail-modal').classList.contains('open')) document.getElementById('today-detail-modal').classList.remove('open');
+    if (document.getElementById('chart-zoom-modal').classList.contains('open')) closeChartZoom();
+    else if (document.getElementById('today-detail-modal').classList.contains('open')) document.getElementById('today-detail-modal').classList.remove('open');
     else if (document.getElementById('journal-modal').classList.contains('open')) closeJournalModal();
     else if (document.getElementById('chart-modal').classList.contains('open')) closeChartModal();
     else if (document.getElementById('year-modal').classList.contains('open')) closeYearModal();
