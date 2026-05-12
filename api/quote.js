@@ -65,6 +65,21 @@ export default async function handler(req, res) {
     return null;
   })() : Promise.resolve(null);
 
+  // 한국 시각 기준 세션 판단 — 네이버 응답의 marketStatus/overMarketStatus는
+  // 직전 세션의 상태가 한동안 남아있어(예: 09:00 직후에도 PRE_MARKET이 OPEN으로 표시)
+  // 시간 기반으로 판단해야 정확함
+  function getKstKrSession() {
+    const now = new Date();
+    const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const day = kst.getDay();
+    if (day === 0 || day === 6) return 'WEEKEND';
+    const mins = kst.getHours() * 60 + kst.getMinutes();
+    if (mins >= 510 && mins < 520) return 'PRE_MARKET';   // 08:30-08:40 장전 시간외 종가
+    if (mins >= 540 && mins < 930) return 'REGULAR';      // 09:00-15:30 정규장
+    if (mins >= 940 && mins < 1080) return 'POST_MARKET'; // 15:40-18:00 장후 시간외 + 단일가
+    return 'OFF';
+  }
+
   // KR 전용: 네이버 금융 시간외 가격 보강 — Yahoo는 한국주식 장전/장후 시간외를 미제공
   // 장전 시간외 종가(08:30~08:40), 장후 시간외 종가(15:40~16:00), 시간외 단일가(16:00~18:00)
   const krCode = market === 'KR' ? symbol.replace(/\.(KS|KQ)$/i, '') : null;
@@ -86,14 +101,15 @@ export default async function handler(req, res) {
       };
       const regular = num(s.closePriceRaw) || num(s.closePrice);
       const over = num(s.overMarketPriceInfo?.overPrice);
-      // 정규장 운영 중이면 regular, 시간외 운영 중이면 over 우선
+      // KST 시간으로 세션 판단 (네이버 플래그 잔존 문제 회피)
+      const session = getKstKrSession();
       let price;
-      if (s.marketStatus === 'OPEN') {
-        price = regular;
-      } else if (s.overMarketPriceInfo?.overMarketStatus === 'OPEN' && over) {
-        price = over;
+      if (session === 'PRE_MARKET' || session === 'POST_MARKET') {
+        price = over || regular;   // 시간외 세션 — 시간외 가격 우선
+      } else if (session === 'REGULAR') {
+        price = regular || over;   // 정규장 — 정규 가격
       } else {
-        price = regular || over;
+        price = regular || over;   // 휴장/주말 — 마지막 가격
       }
       if (!price) return null;
       // 전일종가 = 현재가 - 부호 적용된 등락폭 (code 4/5는 하락)
@@ -107,6 +123,7 @@ export default async function handler(req, res) {
         name: s.stockName || null,
         regular,
         over,
+        session,
         sessionType: s.overMarketPriceInfo?.tradingSessionType || null,
         marketStatus: s.marketStatus || null,
         overStatus: s.overMarketPriceInfo?.overMarketStatus || null,
@@ -155,7 +172,7 @@ export default async function handler(req, res) {
         if (market === 'KR') {
           const nv = await naverPromise;
           if (nv) {
-            console.log(`[quote] ${symbol} naver override: ${nv.price} (yahoo: ${price}, regular: ${nv.regular}, over: ${nv.over}, session: ${nv.sessionType}, mkt: ${nv.marketStatus}/${nv.overStatus})`);
+            console.log(`[quote] ${symbol} naver override: ${nv.price} (yahoo: ${price}, regular: ${nv.regular}, over: ${nv.over}, kstSession: ${nv.session}, naverFlag: ${nv.sessionType}/${nv.marketStatus}/${nv.overStatus})`);
             finalPrice = nv.price;
             if (nv.prevClose) finalPrevClose = nv.prevClose;
             if (nv.name) finalName = nv.name;

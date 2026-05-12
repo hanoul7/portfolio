@@ -241,6 +241,28 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 .market-chg { font-size: 11px; margin-top: 1px; }
 .market-chg.up { color: var(--up); }
 .market-chg.down { color: var(--down); }
+
+/* 투자자별 수급 카드 */
+.investor-section { margin-bottom: 12px; }
+.investor-section-label { font-size: 10px; color: var(--text3); letter-spacing: 0.05em; margin-bottom: 6px; padding: 0 4px; font-weight: 600; }
+.investor-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.investor-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.investor-card:hover { background: var(--bg3); }
+.investor-card-name { font-size: 11px; color: var(--text2); font-weight: 700; margin-bottom: 3px; font-family: var(--sans); }
+.investor-card-price { font-size: 13px; font-weight: 700; color: var(--text); }
+.investor-card-chg { font-size: 10px; margin-bottom: 6px; }
+.investor-row { display: flex; justify-content: space-between; font-size: 10px; padding: 2px 0; border-top: 1px dashed var(--border); }
+.investor-row:first-of-type { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+.investor-row .lbl { color: var(--text3); font-family: var(--sans); }
+.investor-row .val { font-weight: 600; }
 .status-bar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px;
@@ -656,6 +678,16 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
     </a>
   </div>
 
+  <!-- 투자자별 수급 (삼성전자/SK하이닉스/현대차) -->
+  <div class="investor-section">
+    <div class="investor-section-label">투자자별 수급 (최근 거래일)</div>
+    <div class="investor-grid">
+      <div class="investor-card" id="iflow-005930" onclick="openInvestorFlowDetail('005930')"><div class="investor-card-name">삼성전자</div><div style="font-size:10px;color:var(--text3);margin-top:4px">로딩…</div></div>
+      <div class="investor-card" id="iflow-000660" onclick="openInvestorFlowDetail('000660')"><div class="investor-card-name">SK하이닉스</div><div style="font-size:10px;color:var(--text3);margin-top:4px">로딩…</div></div>
+      <div class="investor-card" id="iflow-005380" onclick="openInvestorFlowDetail('005380')"><div class="investor-card-name">현대차</div><div style="font-size:10px;color:var(--text3);margin-top:4px">로딩…</div></div>
+    </div>
+  </div>
+
   <!-- 종목 리스트 -->
   <div class="stock-header" id="stock-header-area" style="margin-bottom:8px"></div>
 
@@ -837,6 +869,15 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
   </div>
 </div>
 
+<!-- 투자자별 수급 상세 모달 -->
+<div class="modal-overlay" id="investor-flow-modal">
+  <div class="modal modal-wide">
+    <div class="modal-handle"></div>
+    <div id="investor-flow-content"></div>
+    <button class="btn-secondary" onclick="closeInvestorFlowDetail()" style="margin-top:12px">닫기</button>
+  </div>
+</div>
+
 <!-- 손익 추이 확대 모달 -->
 <div class="modal-overlay" id="chart-zoom-modal">
   <div class="modal" style="max-width:1200px;max-height:96vh">
@@ -890,6 +931,7 @@ async function init() {
   render();
   updateHeaderHeight();
   fetchRate().then(() => fetchIndices());
+  fetchInvestorFlows();
   if (appKey && appSecret) {
     setSt('loading', token ? '저장된 토큰 사용' : '토큰 발급 중...');
     const tok = await getToken();
@@ -1201,6 +1243,18 @@ function isKRPreOpenWindow() {
   return kst.getHours() < 9;
 }
 
+// 한국 시간외 시세 윈도우 — KIS가 정규장 가격만 주므로 이 시간엔 네이버 우선
+// 08:30~08:40 장전 시간외 종가, 15:40~18:00 장후 시간외 + 시간외 단일가
+function isKRExtendedHoursWindow() {
+  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const day = kst.getDay();
+  if (day === 0 || day === 6) return false;
+  const mins = kst.getHours() * 60 + kst.getMinutes();
+  if (mins >= 510 && mins < 520) return true;     // 08:30-08:40
+  if (mins >= 940 && mins < 1080) return true;    // 15:40-18:00
+  return false;
+}
+
 // 일봉 조회 → 최근 거래일 종가 배열 [latest, prev, ...]
 async function fetchKRDailyCloses(code, tok) {
   if (!tok) return null;
@@ -1258,6 +1312,18 @@ async function fetchKR(ticker, tok) {
         if (o && o.stck_prpr && parseInt(o.stck_prpr) > 0) {
           let price = parseInt(o.stck_prpr);
           let prev = parseInt(o.stck_sdpr || o.stck_prpr);
+          // 시간외 윈도우(08:30-08:40 / 15:40-18:00)면 네이버에서 시간외 가격 가져와 덮어쓰기.
+          // KIS의 stck_prpr은 정규장 가격이라 시간외엔 stale.
+          if (isKRExtendedHoursWindow()) {
+            try {
+              const nr = await fetch(`/api/quote?symbol=${code}&market=KR`);
+              const nd = await nr.json();
+              if (nd && nd.price > 0) {
+                price = nd.price;
+                if (nd.prevClose > 0) prev = nd.prevClose;
+              }
+            } catch(e) {}
+          }
           // 장 시작 전: KIS sdpr이 오늘자 기준가(=어제 종가)라 price==prev로 0% 표시됨.
           // 일봉으로 [어제 종가, 그제 종가] 끌어와서 어제 실현된 전일비를 보여줌.
           if (isKRPreOpenWindow() && price === prev) {
@@ -1493,6 +1559,97 @@ async function fetchIndices() {
     } catch(e) {}
   }));
 }
+
+// ── 투자자별 수급 (삼성전자/SK하이닉스/현대차) ──
+const INVESTOR_STOCKS = [
+  { code: '005930', name: '삼성전자' },
+  { code: '000660', name: 'SK하이닉스' },
+  { code: '005380', name: '현대차' }
+];
+let investorFlowCache = {};
+
+// 주수 포맷: 1,234,567 → "+123만" / "+1.2억"
+function fmtShares(n) {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const sign = n > 0 ? '+' : (n < 0 ? '-' : '');
+  const abs = Math.abs(n);
+  if (abs >= 100000000) return sign + (abs / 100000000).toFixed(1).replace(/\.0$/, '') + '억';
+  if (abs >= 10000) return sign + Math.round(abs / 10000).toLocaleString() + '만';
+  return sign + abs.toLocaleString();
+}
+
+async function fetchInvestorFlows() {
+  await Promise.allSettled(INVESTOR_STOCKS.map(async stock => {
+    try {
+      const r = await fetch(`/api/investor-flow?symbol=${stock.code}`);
+      const j = await r.json();
+      if (!j.data || j.data.length === 0) return;
+      investorFlowCache[stock.code] = j.data;
+      renderInvestorCard(stock, j.data[0]);
+    } catch (e) {
+      console.log('[investor-flow]', stock.code, 'fail:', e.message);
+    }
+  }));
+}
+
+function renderInvestorCard(stock, latest) {
+  const el = document.getElementById('iflow-' + stock.code);
+  if (!el || !latest) return;
+  const prevClose = latest.close && latest.change != null ? latest.close - latest.change : null;
+  const chgPct = prevClose ? (latest.change / prevClose) * 100 : 0;
+  const chgClr = latest.change >= 0 ? 'var(--up)' : 'var(--down)';
+  const flowColor = (n) => n > 0 ? 'var(--up)' : (n < 0 ? 'var(--down)' : 'var(--text2)');
+  el.innerHTML = `
+    <div class="investor-card-name">${stock.name}</div>
+    <div class="investor-card-price">${latest.close ? latest.close.toLocaleString() + '원' : '—'}</div>
+    <div class="investor-card-chg" style="color:${chgClr}">${latest.change >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</div>
+    <div class="investor-row"><span class="lbl">외인</span><span class="val" style="color:${flowColor(latest.foreign)}">${fmtShares(latest.foreign)}</span></div>
+    <div class="investor-row"><span class="lbl">기관</span><span class="val" style="color:${flowColor(latest.organ)}">${fmtShares(latest.organ)}</span></div>
+    <div class="investor-row"><span class="lbl">개인</span><span class="val" style="color:${flowColor(latest.individual)}">${fmtShares(latest.individual)}</span></div>
+  `;
+}
+
+function openInvestorFlowDetail(code) {
+  const stock = INVESTOR_STOCKS.find(s => s.code === code);
+  if (!stock) return;
+  const data = investorFlowCache[code] || [];
+  const el = document.getElementById('investor-flow-content');
+  if (!data.length) {
+    el.innerHTML = `<div class="modal-title">${stock.name} 투자자별 수급</div><div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">데이터 로딩 실패</div>`;
+    document.getElementById('investor-flow-modal').classList.add('open');
+    return;
+  }
+  let html = `<div class="modal-title">${stock.name} <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:4px">${stock.code}</span></div>`;
+  html += `<div style="font-size:11px;color:var(--text3);margin-bottom:10px">최근 ${data.length}거래일 · 단위: 주 (양수 = 순매수)</div>`;
+  html += '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono)">';
+  html += '<thead><tr style="background:var(--bg3);position:sticky;top:0">';
+  html += '<th style="padding:6px 8px;text-align:left;color:var(--text3);white-space:nowrap">날짜</th>';
+  html += '<th style="padding:6px 8px;text-align:right;color:var(--text3)">종가</th>';
+  html += '<th style="padding:6px 8px;text-align:right;color:var(--text3)">등락</th>';
+  html += '<th style="padding:6px 8px;text-align:right;color:var(--text3)">외국인</th>';
+  html += '<th style="padding:6px 8px;text-align:right;color:var(--text3)">기관</th>';
+  html += '<th style="padding:6px 8px;text-align:right;color:var(--text3)">개인</th>';
+  html += '</tr></thead><tbody>';
+  for (const d of data) {
+    const prevClose = (d.close != null && d.change != null) ? d.close - d.change : null;
+    const chgPct = prevClose ? (d.change / prevClose) * 100 : 0;
+    const chgClr = d.change >= 0 ? 'var(--up)' : 'var(--down)';
+    const fclr = (n) => n > 0 ? 'var(--up)' : (n < 0 ? 'var(--down)' : 'var(--text2)');
+    html += `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:5px 8px;white-space:nowrap;color:var(--text2)">${d.date.slice(5)}</td>
+      <td style="padding:5px 8px;text-align:right">${d.close ? d.close.toLocaleString() : '—'}</td>
+      <td style="padding:5px 8px;text-align:right;color:${chgClr}">${d.change >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</td>
+      <td style="padding:5px 8px;text-align:right;color:${fclr(d.foreign)};font-weight:600">${fmtShares(d.foreign)}</td>
+      <td style="padding:5px 8px;text-align:right;color:${fclr(d.organ)};font-weight:600">${fmtShares(d.organ)}</td>
+      <td style="padding:5px 8px;text-align:right;color:${fclr(d.individual)};font-weight:600">${fmtShares(d.individual)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+  document.getElementById('investor-flow-modal').classList.add('open');
+}
+function closeInvestorFlowDetail() { document.getElementById('investor-flow-modal').classList.remove('open'); }
 
 // ── 전체 새로고침 ──
 async function refreshAll() {
@@ -4155,7 +4312,7 @@ function importData(e) {
 }
 
 // ── 모달 바깥 클릭으로 닫기 ──
-['add-modal','edit-modal','api-modal','year-modal','chart-modal','journal-modal','today-detail-modal','chart-zoom-modal'].forEach(id => {
+['add-modal','edit-modal','api-modal','year-modal','chart-modal','journal-modal','today-detail-modal','chart-zoom-modal','investor-flow-modal'].forEach(id => {
   const el = document.getElementById(id);
   let downOnOverlay = false;
   el.addEventListener('mousedown', e => { downOnOverlay = e.target === el; });
@@ -4168,6 +4325,7 @@ function importData(e) {
       else if (id === 'journal-modal') closeJournalModal();
       else if (id === 'today-detail-modal') document.getElementById('today-detail-modal').classList.remove('open');
       else if (id === 'chart-zoom-modal') closeChartZoom();
+      else if (id === 'investor-flow-modal') closeInvestorFlowDetail();
       else closeApiModal();
     }
   });
@@ -4175,7 +4333,8 @@ function importData(e) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('chart-zoom-modal').classList.contains('open')) closeChartZoom();
+    if (document.getElementById('investor-flow-modal').classList.contains('open')) closeInvestorFlowDetail();
+    else if (document.getElementById('chart-zoom-modal').classList.contains('open')) closeChartZoom();
     else if (document.getElementById('today-detail-modal').classList.contains('open')) document.getElementById('today-detail-modal').classList.remove('open');
     else if (document.getElementById('journal-modal').classList.contains('open')) closeJournalModal();
     else if (document.getElementById('chart-modal').classList.contains('open')) closeChartModal();
