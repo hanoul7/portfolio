@@ -93,14 +93,19 @@ export default async function handler(req, res) {
       const d = await r.json();
       const s = d?.datas?.[0];
       if (!s) return null;
-      // 콤마 포함 문자열을 숫자로 ("286,000" → 286000)
-      const num = (v) => {
+      // 콤마 포함 문자열을 숫자로 ("286,000" → 286000, "-151,000" → -151000)
+      // numPos: 양수 가격용(0/음수는 null) / numAny: 부호 있는 수치용(델타 등)
+      const numAny = (v) => {
         if (v == null) return null;
         const n = Number(String(v).replace(/,/g, ''));
-        return Number.isFinite(n) && n > 0 ? n : null;
+        return Number.isFinite(n) ? n : null;
       };
-      const regular = num(s.closePriceRaw) || num(s.closePrice);
-      const over = num(s.overMarketPriceInfo?.overPrice);
+      const numPos = (v) => {
+        const n = numAny(v);
+        return n != null && n > 0 ? n : null;
+      };
+      const regular = numPos(s.closePriceRaw) || numPos(s.closePrice);
+      const over = numPos(s.overMarketPriceInfo?.overPrice);
       // KST 시간으로 세션 판단 (네이버 플래그 잔존 문제 회피)
       const session = getKstKrSession();
       let price;
@@ -112,10 +117,22 @@ export default async function handler(req, res) {
         price = regular || over;   // 휴장/주말 — 마지막 가격
       }
       if (!price) return null;
-      // 전일종가 = 현재가 - 부호 적용된 등락폭 (code 4/5는 하락)
+      // 전일 종가 = 오늘 정규장 종가 - 부호 적용된 등락폭
+      // Naver는 fluctuationsRatio 음수면 compareToPreviousClosePrice를 "-151,000" 형태로 줌
+      // raw 값에 이미 부호가 들어있을 수도, 없을 수도 있어서 두 경우 모두 처리
       const deltaCode = s.compareToPreviousPrice?.code;
-      const deltaAbs = num(s.compareToPreviousClosePriceRaw) || num(s.compareToPreviousClosePrice) || 0;
-      const signedDelta = (deltaCode === '4' || deltaCode === '5') ? -deltaAbs : deltaAbs;
+      const deltaRawVal = numAny(s.compareToPreviousClosePriceRaw);
+      const deltaPretty = numAny(s.compareToPreviousClosePrice);
+      let signedDelta = 0;
+      if (deltaRawVal != null) {
+        // raw 값에 부호가 이미 반영돼 있다고 가정
+        signedDelta = deltaRawVal;
+      } else if (deltaPretty != null) {
+        // pretty 값이 0 이상이면 code로 부호 결정, 음수면 그대로 사용
+        signedDelta = deltaPretty < 0
+          ? deltaPretty
+          : ((deltaCode === '4' || deltaCode === '5') ? -deltaPretty : deltaPretty);
+      }
       const prevClose = regular ? regular - signedDelta : null;
       return {
         price,
