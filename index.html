@@ -1314,19 +1314,14 @@ async function fetchKR(ticker, tok) {
           let prev = parseInt(o.stck_sdpr || o.stck_prpr);
           // 시간외 윈도우(08:30-08:40 / 15:40-18:00)면 네이버에서 시간외 가격 가져와 덮어쓰기.
           // KIS의 stck_prpr은 정규장 가격이라 시간외엔 stale.
+          // 등락% 기준은 전일 종가(어제 종가)로 통일 — HTS 관습
           if (isKRExtendedHoursWindow()) {
             try {
               const nr = await fetch(`/api/quote?symbol=${code}&market=KR`);
               const nd = await nr.json();
               if (nd && nd.price > 0) {
                 price = nd.price;
-                // HTS 방식: 시간외 가격은 오늘 정규장 종가 기준으로 등락% 표시
-                // (전일 종가가 아니라 오늘의 장 마감 가격을 기준으로)
-                if (nd.krRegularClose > 0 && (nd.krSession === 'PRE_MARKET' || nd.krSession === 'POST_MARKET')) {
-                  prev = nd.krRegularClose;
-                } else if (nd.prevClose > 0) {
-                  prev = nd.prevClose;
-                }
+                if (nd.prevClose > 0) prev = nd.prevClose;
               }
             } catch(e) {}
           }
@@ -1357,11 +1352,8 @@ async function fetchKR(ticker, tok) {
     const r = await fetch(`/api/quote?symbol=${code}&market=KR`);
     const d = await r.json();
     if (d.price > 0) {
-      // 시간외 세션이면 오늘 정규장 종가를 기준으로 등락% 계산 (HTS 방식)
-      let base = d.prevClose;
-      if ((d.krSession === 'PRE_MARKET' || d.krSession === 'POST_MARKET') && d.krRegularClose > 0) {
-        base = d.krRegularClose;
-      }
+      // 등락% 기준은 항상 전일 종가 (HTS 관습 — 시간외 가격도 전일 종가 대비)
+      const base = d.prevClose;
       const chg = base ? ((d.price - base) / base) * 100 : 0;
       return { priceKrw: d.price, priceLocal: d.price, prevClose: base || d.price, changeRatio: chg, name: null, marketState: d.marketState };
     }
