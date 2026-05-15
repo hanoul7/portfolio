@@ -4309,10 +4309,33 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+// 일별 손익 머지: 다른 기기에서 미접속(missed)으로 기록된 날이 실 데이터를 덮어쓰지 않도록
+//  - 같은 날 가져온 값이 missed이고 기존이 실 데이터면 → 기존 유지
+//  - 가져온 값이 실 데이터거나, 둘 다 missed거나, 기존에 없으면 → 가져온 값 사용
+//  - 기존에만 있고 가져온 데이터엔 없는 날짜 → 기존 유지
+function mergeDailyPnl(existing, imported) {
+  const map = new Map();
+  for (const d of existing || []) {
+    if (d && d.date) map.set(d.date, d);
+  }
+  let preservedMissed = 0;
+  for (const d of imported || []) {
+    if (!d || !d.date) continue;
+    const cur = map.get(d.date);
+    if (cur && d.missed && !cur.missed) {
+      preservedMissed++;
+      continue;
+    }
+    map.set(d.date, d);
+  }
+  const merged = [...map.values()].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  return { merged, preservedMissed };
+}
+
 function importData(e) {
   const file = e.target.files[0];
   if (!file) return;
-  if (!confirm('기존 데이터를 덮어씁니다. 계속할까요?')) {
+  if (!confirm('기존 데이터를 덮어씁니다. 계속할까요?\n(단, 일별 금년 손익은 가져온 데이터가 미접속이면 기존 실 데이터를 보존합니다)')) {
     e.target.value = '';
     return;
   }
@@ -4328,14 +4351,20 @@ function importData(e) {
       if (Array.isArray(data.yearAccounts)) { yearAccounts = data.yearAccounts; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       else if (data.prevYearEndVal > 0) { yearAccounts = [{ name: '계좌1', yearEndPnl: data.prevYearEndVal, realized: data.thisYearRealized || 0 }]; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       if (Array.isArray(data.journalLog)) { journalLog = data.journalLog; saveJournal(); }
-      if (Array.isArray(data.dailyPnl)) { dailyPnl = data.dailyPnl; saveDailyPnl(); }
+      let mergeNote = '';
+      if (Array.isArray(data.dailyPnl)) {
+        const { merged, preservedMissed } = mergeDailyPnl(dailyPnl, data.dailyPnl);
+        dailyPnl = merged;
+        saveDailyPnl();
+        if (preservedMissed > 0) mergeNote = `\n(가져온 미접속 ${preservedMissed}건은 기존 실 데이터로 보존)`;
+      }
       token = ''; tokenExp = 0;
       localStorage.removeItem('kis_token');
       localStorage.removeItem('kis_token_exp');
       px = {};
       render();
       if (appKey && appSecret) refreshAll();
-      alert('가져오기 완료');
+      alert('가져오기 완료' + mergeNote);
     } catch(err) {
       alert('파일 형식이 올바르지 않습니다');
     }
