@@ -680,7 +680,7 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
 
   <!-- 투자자별 수급 (삼성전자/SK하이닉스/현대차) -->
   <div class="investor-section">
-    <div class="investor-section-label">투자자별 수급 (최근 거래일)</div>
+    <div class="investor-section-label">투자자별 수급</div>
     <div class="investor-grid">
       <div class="investor-card" id="iflow-005930" onclick="openInvestorFlowDetail('005930')"><div class="investor-card-name">삼성전자</div><div style="font-size:10px;color:var(--text3);margin-top:4px">로딩…</div></div>
       <div class="investor-card" id="iflow-000660" onclick="openInvestorFlowDetail('000660')"><div class="investor-card-name">SK하이닉스</div><div style="font-size:10px;color:var(--text3);margin-top:4px">로딩…</div></div>
@@ -1320,7 +1320,13 @@ async function fetchKR(ticker, tok) {
               const nd = await nr.json();
               if (nd && nd.price > 0) {
                 price = nd.price;
-                if (nd.prevClose > 0) prev = nd.prevClose;
+                // HTS 방식: 시간외 가격은 오늘 정규장 종가 기준으로 등락% 표시
+                // (전일 종가가 아니라 오늘의 장 마감 가격을 기준으로)
+                if (nd.krRegularClose > 0 && (nd.krSession === 'PRE_MARKET' || nd.krSession === 'POST_MARKET')) {
+                  prev = nd.krRegularClose;
+                } else if (nd.prevClose > 0) {
+                  prev = nd.prevClose;
+                }
               }
             } catch(e) {}
           }
@@ -1351,8 +1357,13 @@ async function fetchKR(ticker, tok) {
     const r = await fetch(`/api/quote?symbol=${code}&market=KR`);
     const d = await r.json();
     if (d.price > 0) {
-      const chg = d.prevClose ? ((d.price - d.prevClose) / d.prevClose) * 100 : 0;
-      return { priceKrw: d.price, priceLocal: d.price, prevClose: d.prevClose || d.price, changeRatio: chg, name: null, marketState: d.marketState };
+      // 시간외 세션이면 오늘 정규장 종가를 기준으로 등락% 계산 (HTS 방식)
+      let base = d.prevClose;
+      if ((d.krSession === 'PRE_MARKET' || d.krSession === 'POST_MARKET') && d.krRegularClose > 0) {
+        base = d.krRegularClose;
+      }
+      const chg = base ? ((d.price - base) / base) * 100 : 0;
+      return { priceKrw: d.price, priceLocal: d.price, prevClose: base || d.price, changeRatio: chg, name: null, marketState: d.marketState };
     }
   } catch(e) {}
   return null;
@@ -1579,28 +1590,58 @@ function fmtShares(n) {
 }
 
 async function fetchInvestorFlows() {
+  // KIS 실시간 시도를 위해 인증 헤더 첨부 (실패해도 네이버 일별로 fallback)
+  const tok = (appKey && appSecret) ? await getToken() : null;
+  const baseHeaders = tok ? {
+    'authorization': `Bearer ${tok}`,
+    'appkey': appKey,
+    'appsecret': appSecret,
+  } : {};
   await Promise.allSettled(INVESTOR_STOCKS.map(async stock => {
     try {
-      const r = await fetch(`/api/investor-flow?symbol=${stock.code}`);
+      const r = await fetch(`/api/investor-flow?symbol=${stock.code}`, { headers: baseHeaders });
       const j = await r.json();
-      if (!j.data || j.data.length === 0) return;
+      if (!j.data || j.data.length === 0) {
+        if (j.realtime && j.realtime.error) console.log('[investor-flow]', stock.code, 'kis err:', j.realtime.error);
+        return;
+      }
       investorFlowCache[stock.code] = j.data;
-      renderInvestorCard(stock, j.data[0]);
+      // 실시간(오늘) 데이터가 있고 합계가 비어있지 않으면 사용
+      const rt = j.realtime;
+      let displayItem = j.data[0];
+      let isRealtime = false;
+      if (rt && !rt.error && (rt.foreign != null || rt.organ != null || rt.individual != null)) {
+        const today = new Date().toISOString().slice(0,10);
+        displayItem = {
+          date: today,
+          close: j.data[0].close,
+          change: j.data[0].change,
+          foreign: rt.foreign != null ? rt.foreign : j.data[0].foreign,
+          organ: rt.organ != null ? rt.organ : j.data[0].organ,
+          individual: rt.individual != null ? rt.individual : j.data[0].individual,
+        };
+        isRealtime = true;
+      }
+      renderInvestorCard(stock, displayItem, isRealtime);
     } catch (e) {
       console.log('[investor-flow]', stock.code, 'fail:', e.message);
     }
   }));
 }
 
-function renderInvestorCard(stock, latest) {
+function renderInvestorCard(stock, latest, isRealtime) {
   const el = document.getElementById('iflow-' + stock.code);
   if (!el || !latest) return;
   const prevClose = latest.close && latest.change != null ? latest.close - latest.change : null;
   const chgPct = prevClose ? (latest.change / prevClose) * 100 : 0;
   const chgClr = latest.change >= 0 ? 'var(--up)' : 'var(--down)';
   const flowColor = (n) => n > 0 ? 'var(--up)' : (n < 0 ? 'var(--down)' : 'var(--text2)');
+  // 날짜 라벨 — 실시간이면 '오늘 실시간', 아니면 'MM-DD 기준' 표시
+  const dateLabel = isRealtime
+    ? '<span style="font-size:9px;color:var(--accent);font-weight:600;margin-left:4px">● 실시간</span>'
+    : (latest.date ? `<span style="font-size:9px;color:var(--text3);font-weight:400;margin-left:4px">${latest.date.slice(5)} 기준</span>` : '');
   el.innerHTML = `
-    <div class="investor-card-name">${stock.name}</div>
+    <div class="investor-card-name">${stock.name}${dateLabel}</div>
     <div class="investor-card-price">${latest.close ? latest.close.toLocaleString() + '원' : '—'}</div>
     <div class="investor-card-chg" style="color:${chgClr}">${latest.change >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</div>
     <div class="investor-row"><span class="lbl">외인</span><span class="val" style="color:${flowColor(latest.foreign)}">${fmtShares(latest.foreign)}</span></div>

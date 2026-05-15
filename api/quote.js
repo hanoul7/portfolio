@@ -169,6 +169,9 @@ export default async function handler(req, res) {
         let finalPrice = price;
         let finalPrevClose = meta.chartPreviousClose || meta.previousClose;
         let finalName = meta.longName || meta.shortName || null;
+        // KR 시간외용 추가 필드 — HTS는 시간외 가격을 오늘 정규장 종가 기준으로 등락% 표시
+        let krRegularClose = null;   // 오늘 정규장 종가 (시간외 가격 등락% 기준)
+        let krSession = null;        // KST 기반 세션: PRE_MARKET / REGULAR / POST_MARKET / OFF / WEEKEND
         if (market === 'KR') {
           const nv = await naverPromise;
           if (nv) {
@@ -176,6 +179,8 @@ export default async function handler(req, res) {
             finalPrice = nv.price;
             if (nv.prevClose) finalPrevClose = nv.prevClose;
             if (nv.name) finalName = nv.name;
+            krRegularClose = nv.regular || null;
+            krSession = nv.session || null;
           }
         }
 
@@ -185,7 +190,9 @@ export default async function handler(req, res) {
           name: finalName,
           currency: meta.currency,
           marketState,
-          ...(kst1530Price != null && { kst1530Price })
+          ...(kst1530Price != null && { kst1530Price }),
+          ...(krRegularClose != null && { krRegularClose }),
+          ...(krSession != null && { krSession })
         });
       }
       errors.push(`${url.split('/')[2]}: price missing (status ${r.status})`);
@@ -205,6 +212,8 @@ export default async function handler(req, res) {
         name: nv.name,
         currency: 'KRW',
         marketState: 'CLOSED',
+        ...(nv.regular != null && { krRegularClose: nv.regular }),
+        ...(nv.session != null && { krSession: nv.session })
       });
     }
   }
