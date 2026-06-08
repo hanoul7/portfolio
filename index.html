@@ -3050,6 +3050,11 @@ function renderTradeInput(el) {
   });
   html += '</div>';
 
+  // 체결 스크린샷 자동입력
+  html += '<input type="file" id="j-shot" accept="image/*" style="display:none" onchange="importTradesFromImage(this)" />';
+  html += '<button id="j-shot-btn" onclick="document.getElementById(\'j-shot\').click()" style="width:100%;box-sizing:border-box;font-size:12px;padding:9px;border-radius:8px;border:1px dashed var(--accent);background:var(--accent-dim);color:var(--accent);cursor:pointer;margin-bottom:8px">📷 체결 알림 스크린샷 불러오기 (자동입력)</button>';
+  html += '<div id="j-shot-status" style="font-size:11px;color:var(--text3);margin-bottom:8px;min-height:0"></div>';
+
   // 거래 추가 버튼
   html += '<div style="display:flex;gap:8px;margin-bottom:16px">';
   html += '<button onclick="addTradeRow()" style="flex:1;font-size:12px;padding:8px;border-radius:8px;border:1px dashed var(--border);background:var(--bg3);color:var(--text2);cursor:pointer">+ 보유종목 거래</button>';
@@ -3356,6 +3361,67 @@ function addNewStockTrade() {
     const tickerInput = last && last.querySelector('input[data-role="ticker"]');
     if (tickerInput) tickerInput.focus();
   }, 50);
+}
+
+// 체결 알림 스크린샷 → 거래 자동입력 (Claude 비전)
+async function importTradesFromImage(input) {
+  const file = input && input.files && input.files[0];
+  input.value = '';  // 같은 파일 재선택 허용
+  if (!file) return;
+  const status = document.getElementById('j-shot-status');
+  const setStatus = (msg, color) => { if (status) { status.textContent = msg; status.style.color = color || 'var(--text3)'; } };
+  setStatus('이미지 분석 중… (수 초 소요)', 'var(--accent)');
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+    const base64 = String(dataUrl).replace(/^data:[^;]+;base64,/, '');
+    const mediaType = (String(dataUrl).match(/^data:([^;]+);/) || [])[1] || file.type || 'image/png';
+    const r = await fetch('/api/parse-trades', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: base64, mediaType })
+    });
+    const d = await r.json();
+    if (!r.ok || !d || !Array.isArray(d.trades) || d.trades.length === 0) {
+      setStatus('인식 실패' + (d && d.detail ? ': ' + d.detail : '') + ' — 직접 입력해 주세요', 'var(--down)');
+      return;
+    }
+    // 날짜 반영
+    if (d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) {
+      currentFormDate = d.date;
+      syncFormFxForDate(d.date, true);
+    }
+    // 각 거래를 journalTrades 행으로 변환
+    const acctType = (d.account_type || 'KR').toUpperCase();
+    const norm = s => (s || '').replace(/\s+/g, '').toLowerCase();
+    d.trades.forEach(t => {
+      const action = t.action === 'sell' ? 'sell' : 'buy';
+      const qty = Number(t.qty) || 0;
+      const price = Number(t.price) || 0;
+      // 보유 종목 이름으로 매칭 (매도/추가매수 시 코드·시장·계좌 확정)
+      const held = pf.find(s => s.name && t.name && norm(s.name) === norm(t.name));
+      let row;
+      if (held) {
+        row = { acct: held.acct || '', ticker: held.ticker, market: held.market, name: held.name, type: action, qty, price, avgFx: 0, realized: 0, isNew: false };
+      } else {
+        let ticker = (t.ticker || '').trim().toUpperCase();
+        let market;
+        if (ticker) { market = detectMarket(ticker); }
+        else { ticker = t.name; market = (acctType === 'US') ? 'US' : detectMarket(t.name); }
+        row = { acct: '', ticker, market, name: t.name, type: action, qty, price, avgFx: 0, realized: 0, isNew: true };
+      }
+      ensureTradeFx(row);
+      journalTrades.push(row);
+    });
+    renderJournalContent();
+    setStatus('✓ ' + d.trades.length + '건 불러옴' + (d.broker ? ' · ' + d.broker : '') + ' · 확인 후 저장하세요', 'var(--up)');
+  } catch (e) {
+    setStatus('오류: ' + e.message, 'var(--down)');
+  }
 }
 
 // 신규종목 ticker 입력 (oninput) — 매수가 자동입력 방지 위해 재렌더 안 함
