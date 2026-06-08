@@ -40,27 +40,44 @@ export default async function handler(req, res) {
 
     if (country === 'KR') {
       // 네이버 금융 국고채(10년) 일별 시세 — HTML 테이블 파싱
-      const url = 'https://finance.naver.com/marketindex/interestDailyQuote.naver?marketindexCd=IRR_GOVT10Y&page=1';
-      const r = await fetchWithTimeout(url, 6000, {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://finance.naver.com/marketindex/',
-      });
-      const html = await r.text();
-      // 행 구조: <td class="date">YYYY.MM.DD</td> <td class="num">금리</td> ...
-      const re = /<td[^>]*class="date"[^>]*>[^<]*<\/td>\s*<td[^>]*class="num"[^>]*>\s*([\d.]+)\s*<\/td>/g;
-      const yields = [];
-      let m;
-      while ((m = re.exec(html)) !== null) {
-        const v = parseFloat(m[1]);
-        if (Number.isFinite(v) && v > 0) yields.push(v);
+      // 엔드포인트/코드가 바뀔 수 있어 여러 후보를 순서대로 시도
+      const candidates = [
+        'https://finance.naver.com/marketindex/interestDailyQuote.naver?marketindexCd=IRR_GOVT10Y&page=1',
+        'https://finance.naver.com/marketindex/interestDailyQuote.nhn?marketindexCd=IRR_GOVT10Y&page=1',
+        'https://finance.naver.com/marketindex/interestDailyQuote.naver?marketindexCd=IRR_GOVT10&page=1',
+        'https://finance.naver.com/marketindex/bondDailyQuote.naver?marketindexCd=IRR_GOVT10Y&page=1',
+      ];
+      // 날짜(예 2026.06.05) 다음에 오는 첫 숫자(=종가/금리)를 행마다 추출
+      const re = /class="date"[^>]*>\s*([\d.]{6,10})\s*<\/td>[\s\S]*?class="num"[^>]*>\s*([\d.]+)/g;
+      const debug = [];
+      for (const url of candidates) {
+        try {
+          const r = await fetchWithTimeout(url, 6000, {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://finance.naver.com/marketindex/',
+          });
+          if (!r.ok) { debug.push(`${url.split('?')[0].split('/').pop()}: status ${r.status}`); continue; }
+          const html = await r.text();
+          const yields = [];
+          let m;
+          re.lastIndex = 0;
+          while ((m = re.exec(html)) !== null) {
+            const v = parseFloat(m[2]);
+            if (Number.isFinite(v) && v > 0 && v < 30) yields.push(v);
+          }
+          if (yields.length > 0) {
+            const price = yields[0];
+            const prevClose = yields.length > 1 ? yields[1] : null;
+            console.log(`[bond-yield] KR 10Y: ${price}% (prev ${prevClose}%) via ${url}`);
+            return res.json({ price, prevClose, name: '국고채 10년' });
+          }
+          debug.push(`${url.split('?')[0].split('/').pop()}: no rows (len ${html.length})`);
+        } catch (e) {
+          debug.push(`${url.split('?')[0].split('/').pop()}: ${e.message}`);
+        }
       }
-      if (yields.length > 0) {
-        const price = yields[0];
-        const prevClose = yields.length > 1 ? yields[1] : null;
-        console.log(`[bond-yield] KR 10Y: ${price}% (prev ${prevClose}%)`);
-        return res.json({ price, prevClose, name: '국고채 10년' });
-      }
-      return res.status(500).json({ error: 'kr bond yield unavailable' });
+      console.log(`[bond-yield] KR 10Y all failed: ${debug.join(' | ')}`);
+      return res.status(500).json({ error: 'kr bond yield unavailable', debug });
     }
 
     return res.status(400).json({ error: 'country must be US or KR' });
