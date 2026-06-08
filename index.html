@@ -2150,6 +2150,7 @@ function renderStockCard(s, totalEval) {
         <div class="stock-name">${s.name} ${badge}</div>
         <div class="stock-meta">
           <span>${s.ticker}</span>
+          <span>${s.qty.toLocaleString()}${unit} 보유</span>
           <span>${p ? '평가금액 ' + fmt(p.priceKrw * s.qty) + '원' : ''}</span>
         </div>
       </div>
