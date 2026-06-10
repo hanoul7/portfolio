@@ -1218,6 +1218,9 @@ function getMarketStateLabel(market, priceData) {
     const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
     const day = kst.getDay();
     if (day === 0 || day === 6) return { text: '휴장', color: 'var(--text3)' };
+    const mins = kst.getHours() * 60 + kst.getMinutes();
+    if (mins >= 480 && mins < 540) return { text: '장전', color: '#e67e22' };   // 08:00-09:00 장전(동시호가/시간외)
+    if (mins >= 930 && mins < 1080) return { text: '장후', color: '#9b59b6' };  // 15:30-18:00 장후 시간외
     return { text: '장마감', color: 'var(--text3)' };
   }
   return null;
