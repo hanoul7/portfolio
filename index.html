@@ -938,9 +938,10 @@ async function init() {
   if (appKey) document.getElementById('api-key').value = appKey;
   if (appSecret) document.getElementById('api-secret').value = appSecret;
   updateBaselineLabel();
+  migrateUsRealizedKRW();   // 과거 미국 매도 실현손익(달러로 저장됨) 원화 보정
   render();
   updateHeaderHeight();
-  fetchRate().then(() => fetchIndices());
+  fetchRate().then(() => { fetchIndices(); if (migrateUsRealizedKRW()) render(); });
   fetchBondYields();
   fetchInvestorFlows();
   if (appKey && appSecret) {
@@ -3841,6 +3842,34 @@ function reverseEntryEffect(entry) {
       }
     }
   }
+}
+
+// 기존 저장된 미국 매도 실현손익을 원화로 재계산 (달러로 저장됐던 과거 데이터 보정)
+// 저장된 prevAvg(매입평단)·prevAvgFx(매입환율)·avgFx(매도환율)·price·qty로 정확히 복원. 멱등.
+function migrateUsRealizedKRW() {
+  let changed = 0;
+  for (const e of journalLog) {
+    for (const t of (e.trades || [])) {
+      if (t.type !== 'sell' || t.market !== 'US') continue;
+      if (!(t.prevAvg > 0) || !(t.qty > 0) || !(t.price > 0)) continue;
+      const sellFx = t.avgFx > 0 ? t.avgFx : (t.prevAvgFx > 0 ? t.prevAvgFx : (usdkrw > 0 ? usdkrw : 0));
+      if (sellFx <= 0) continue;  // 환율 정보 부족 → 건너뜀
+      const buyFx = t.prevAvgFx > 0 ? t.prevAvgFx : sellFx;
+      const correct = Math.round(t.price * t.qty * sellFx - t.prevAvg * t.qty * buyFx);
+      const old = t.realized || 0;
+      if (correct !== old) {
+        const ya = yearAccounts.find(a => a.name === (t.acct || ''));
+        if (ya) ya.realized = (ya.realized || 0) + (correct - old);
+        t.realized = correct;
+        changed++;
+      }
+    }
+  }
+  if (changed) {
+    saveJournal();
+    localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+  }
+  return changed;
 }
 
 function deleteJournalEntry(entryId) {
