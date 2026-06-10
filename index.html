@@ -3141,10 +3141,17 @@ function renderTradeRow(trade, idx) {
   const curPrice = p ? (held.market === 'US' ? p.priceLocal : p.priceKrw) : 0;
   const heldQty = held ? held.qty : 0;
 
-  // 실현손익 (매도시)
+  // 실현손익 (매도시) — 미국주식은 원화 환산(매수·매도 환율 반영)
   let realizedHtml = '';
   if (isSell && trade.qty > 0 && trade.price > 0 && held) {
-    const realized = (trade.price - held.avg) * trade.qty;
+    let realized;
+    if (held.market === 'US') {
+      const sellFx = trade.avgFx > 0 ? trade.avgFx : (currentFormFx > 0 ? currentFormFx : usdkrw);
+      const buyFx = held.avgFx > 0 ? held.avgFx : sellFx;
+      realized = trade.price * trade.qty * sellFx - held.avg * trade.qty * buyFx;
+    } else {
+      realized = (trade.price - held.avg) * trade.qty;
+    }
     trade.realized = Math.round(realized);
     const cls = realized >= 0 ? 'var(--up)' : 'var(--down)';
     realizedHtml = `<div style="font-size:11px;color:${cls};font-weight:600;margin-top:4px">실현손익: ${fmtSign(trade.realized)}원</div>`;
@@ -3631,7 +3638,14 @@ async function saveJournalEntry() {
       }
     } else if (t.type === 'sell') {
       if (existing) {
-        realized = Math.round((t.price - existing.avg) * t.qty);
+        // 미국주식은 원화 환산: 매도금액(매도환율) − 매입원가(매입환율)
+        if (t.market === 'US') {
+          const sellFx = t.avgFx > 0 ? t.avgFx : (usdkrw > 0 ? usdkrw : 0);
+          const buyFx = (existing.avgFx && existing.avgFx > 0) ? existing.avgFx : sellFx;
+          realized = Math.round(t.price * t.qty * sellFx - existing.avg * t.qty * buyFx);
+        } else {
+          realized = Math.round((t.price - existing.avg) * t.qty);
+        }
         existing.qty -= t.qty;
         if (existing.qty <= 0) {
           pf = pf.filter(s => s.id !== existing.id);
