@@ -1010,6 +1010,32 @@ function calcYearGain() {
   return { yearGain, acctMap, totalCurPnl, totalYearEndPnl, totalRealized, totalFxGain };
 }
 
+// 금년 매도(실현)분의 매입원가(원화)를 계좌별로 복원 — 손익율 분모에 사용
+// 거래기록의 매도 trade에 저장된 prevAvg(매도시점 평단)·qty·prevAvgFx로 계산
+function realizedCostByAcct() {
+  const yr = new Date().getFullYear();
+  const map = {};
+  for (const e of journalLog) {
+    if (!e.date || parseInt(e.date.slice(0, 4), 10) !== yr) continue;
+    for (const t of (e.trades || [])) {
+      if (t.type !== 'sell') continue;
+      const qty = t.qty || 0;
+      const prevAvg = t.prevAvg || 0;
+      if (qty <= 0 || prevAvg <= 0) continue;
+      let cost;
+      if (t.market === 'US') {
+        const fx = t.prevAvgFx > 0 ? t.prevAvgFx : (t.avgFx > 0 ? t.avgFx : (usdkrw > 0 ? usdkrw : 0));
+        cost = prevAvg * qty * fx;
+      } else {
+        cost = prevAvg * qty;
+      }
+      const key = t.acct || '';
+      map[key] = (map[key] || 0) + cost;
+    }
+  }
+  return map;
+}
+
 // ── 금년손익 일별 스냅샷 ──
 function snapshotDailyPnl() {
   const result = calcYearGain();
@@ -1925,6 +1951,9 @@ function renderList() {
     acctStats[key] = { cost, eval: ev, dayChg };
   }
 
+  // 금년 실현분 매입원가 (손익율 분모 = 현재 보유원가 + 올해 실현분 원가)
+  const realizedCostMap = realizedCostByAcct();
+
   // 계좌를 비중(평가액) 순으로 정렬
   groupKeys.sort((a, b) => (acctStats[b]?.eval || 0) - (acctStats[a]?.eval || 0));
 
@@ -2007,7 +2036,9 @@ function renderList() {
       }
       const yg = (curPnl - (ya.yearEndPnl || 0)) + (ya.realized || 0) + fxGain;
       const yCls = yg >= 0 ? 'up' : 'down';
-      const yPct = stat.cost > 0 ? (yg / stat.cost) * 100 : 0;
+      // 분모 = 현재 보유원가 + 올해 실현분 매입원가
+      const yDenom = stat.cost + (realizedCostMap[key] || 0);
+      const yPct = yDenom > 0 ? (yg / yDenom) * 100 : 0;
       const intensity = Math.min(Math.abs(yPct) / 30, 1);
       const alpha = (0.03 + intensity * 0.10).toFixed(2);
       groupBg = yg >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
@@ -2291,7 +2322,9 @@ function renderSummary() {
     if (ygResult) {
       const { yearGain, acctMap, totalFxGain } = ygResult;
       const cls = yearGain >= 0 ? 'up' : 'down';
-      const totalAcctCost = Object.values(acctMap).reduce((s, a) => s + a.cost, 0);
+      // 분모 = 현재 보유원가 + 올해 실현분 매입원가
+      const totalRealizedCost = Object.values(realizedCostByAcct()).reduce((s, c) => s + c, 0);
+      const totalAcctCost = Object.values(acctMap).reduce((s, a) => s + a.cost, 0) + totalRealizedCost;
       const yearPctVal = totalAcctCost > 0 ? (yearGain / totalAcctCost) * 100 : 0;
       const intensity = Math.min(Math.abs(yearPctVal) / 30, 1);
       const alpha = (0.06 + intensity * 0.18).toFixed(2);
