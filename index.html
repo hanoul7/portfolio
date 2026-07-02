@@ -939,6 +939,7 @@ async function init() {
   if (appSecret) document.getElementById('api-secret').value = appSecret;
   updateBaselineLabel();
   migrateUsRealizedKRW();   // 과거 미국 매도 실현손익(달러로 저장됨) 원화 보정
+  migrateManualKrStocks();  // 한글명으로 잘못 들어간 수기 종목 → KR 종목코드 자동 전환 (비동기)
   render();
   updateHeaderHeight();
   fetchRate().then(() => { fetchIndices(); if (migrateUsRealizedKRW()) render(); });
@@ -2174,6 +2175,8 @@ function renderStockCard(s, totalEval) {
           <div style="margin-top:4px;height:3px;border-radius:2px;background:var(--border)"><div style="height:100%;border-radius:2px;background:var(--accent);width:${Math.min(weight,100)}%"></div></div>
         </div>
       </div>`;
+  } else if (s.market === 'MANUAL') {
+    priceHtml = '<div class="stock-right"><div class="stock-price" style="color:var(--text3);font-size:11px">종목 편집에서 현재가 입력</div></div>';
   } else if (!appKey) {
     priceHtml = '<div class="stock-right"><div class="stock-price" style="color:var(--text3)">—</div></div>';
   }
@@ -3174,7 +3177,7 @@ function renderTradeRow(trade, idx) {
   if (isNew) {
     const nameHint = trade.name ? `<div style="font-size:10px;color:var(--up);margin-top:3px">✓ ${trade.name}</div>` : '';
     stockFieldHtml = `
-      <input data-role="ticker" value="${(trade.ticker || '').replace(/"/g,'&quot;')}" oninput="updateNewTradeTicker(${idx},this.value)" onblur="lookupNewTradeName(${idx})" placeholder="005930 / AAPL" autocapitalize="characters" autocomplete="off" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px;border:1px solid var(--accent);border-radius:6px;background:var(--card);color:var(--text1);font-family:var(--mono)" />
+      <input data-role="ticker" value="${(trade.ticker || '').replace(/"/g,'&quot;')}" oninput="updateNewTradeTicker(${idx},this.value)" onblur="lookupNewTradeName(${idx})" placeholder="005930 / AAPL / 한글 종목명" autocapitalize="characters" autocomplete="off" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px;border:1px solid var(--accent);border-radius:6px;background:var(--card);color:var(--text1);font-family:var(--mono)" />
       ${nameHint}`;
   } else {
     stockFieldHtml = `<select data-role="stock" onchange="updateTradeStock(${idx},this.value)" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text1)">
@@ -3407,6 +3410,56 @@ function addNewStockTrade() {
   }, 50);
 }
 
+// 한글 종목명 → 국내 종목코드 (네이버 검색 프록시)
+const krCodeCache = new Map();
+async function resolveKrCode(name) {
+  const q = (name || '').trim();
+  if (!q || !/[가-힣]/.test(q)) return null;
+  if (krCodeCache.has(q)) return krCodeCache.get(q);
+  let hit = null;
+  try {
+    const r = await fetch('/api/stock-search?q=' + encodeURIComponent(q));
+    if (r.ok) {
+      const d = await r.json();
+      if (d && /^\d{6}$/.test(d.code || '')) hit = { code: d.code, name: d.name || q, exact: !!d.exact };
+    }
+  } catch(e) {}
+  krCodeCache.set(q, hit);
+  return hit;
+}
+
+// 한글명으로 잘못 들어간 수기(MANUAL) 종목을 KR 종목으로 자동 전환
+// 스크린샷 자동입력에서 종목코드 없이 저장된 종목이 대상. 정확 일치만 전환.
+async function migrateManualKrStocks() {
+  const targets = pf.filter(s =>
+    s.market === 'MANUAL' && /[가-힣]/.test(s.name || '') && !(s.manualPrice > 0));
+  let changed = 0;
+  for (const s of targets) {
+    const hit = await resolveKrCode(s.name);
+    if (!hit || !hit.exact) continue;   // 이름이 정확히 일치할 때만 자동 전환
+    const oldTicker = s.ticker;
+    s.ticker = hit.code;
+    s.market = 'KR';
+    // 거래기록의 같은 종목도 함께 전환 (편집/되돌리기 매칭 유지)
+    for (const e of journalLog) {
+      for (const t of (e.trades || [])) {
+        if (t.market === 'MANUAL' && t.ticker === oldTicker && (t.acct || '') === (s.acct || '')) {
+          t.ticker = hit.code;
+          t.market = 'KR';
+        }
+      }
+    }
+    changed++;
+  }
+  if (changed) {
+    save();
+    saveJournal();
+    render();
+    if (appKey && appSecret) refreshAll();
+  }
+  return changed;
+}
+
 // 체결 알림 스크린샷 → 거래 자동입력 (Claude 비전)
 async function importTradesFromImage(input) {
   const file = input && input.files && input.files[0];
@@ -3442,7 +3495,7 @@ async function importTradesFromImage(input) {
     // 각 거래를 journalTrades 행으로 변환
     const acctType = (d.account_type || 'KR').toUpperCase();
     const norm = s => (s || '').replace(/\s+/g, '').toLowerCase();
-    d.trades.forEach(t => {
+    for (const t of d.trades) {
       const action = t.action === 'sell' ? 'sell' : 'buy';
       const qty = Number(t.qty) || 0;
       const price = Number(t.price) || 0;
@@ -3456,11 +3509,17 @@ async function importTradesFromImage(input) {
         let market;
         if (ticker) { market = detectMarket(ticker); }
         else { ticker = t.name; market = (acctType === 'US') ? 'US' : detectMarket(t.name); }
+        // 한글 종목명 → 종목코드 자동 변환 (수기로 남으면 시세 조회가 안 됨)
+        if (market === 'MANUAL' && /[가-힣]/.test(t.name || '')) {
+          setStatus(`'${t.name}' 종목코드 검색 중…`, 'var(--accent)');
+          const hit = await resolveKrCode(t.name);
+          if (hit) { ticker = hit.code; market = 'KR'; }
+        }
         row = { acct: '', ticker, market, name: t.name, type: action, qty, price, avgFx: 0, realized: 0, isNew: true };
       }
       ensureTradeFx(row);
       journalTrades.push(row);
-    });
+    }
     renderJournalContent();
     setStatus('✓ ' + d.trades.length + '건 불러옴' + (d.broker ? ' · ' + d.broker : '') + ' · 확인 후 저장하세요', 'var(--up)');
   } catch (e) {
@@ -3488,6 +3547,18 @@ async function lookupNewTradeName(idx) {
   const t = journalTrades[idx];
   if (!t || !t.isNew || !t.ticker) return;
   t.market = detectMarket(t.ticker);
+  // 한글 종목명 입력 → 종목코드 자동 변환
+  if (t.market === 'MANUAL' && /[가-힣]/.test(t.ticker)) {
+    const hit = await resolveKrCode(t.ticker);
+    if (hit) {
+      t.ticker = hit.code;
+      t.market = 'KR';
+      t.name = hit.name;
+      ensureTradeFx(t);
+      renderJournalContent();
+      return;
+    }
+  }
   // KR/US만 외부 조회
   if (t.market === 'KR' || t.market === 'US') {
     try {
