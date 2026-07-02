@@ -3525,7 +3525,7 @@ async function migrateManualKrStocks() {
 // ③ 금년 실현손익을 거래기록 기준으로 재계산
 // ④ 같은 계좌·같은 종목 중복 보유 항목 병합
 async function repairDataConsistency() {
-  if (!confirm('데이터 정리를 실행할까요?\n\n· 거래기록의 수기(한글명) 종목 → 종목코드 전환\n· 끊어진 일별손익 링크 정리\n· 금년 실현손익을 거래기록 기준으로 재계산\n· 중복 종목 병합\n\n(금년 실현손익이 거래기록 합계로 덮어써집니다)')) return;
+  if (!confirm('데이터 정리를 실행할까요?\n\n· 거래기록의 수기(한글명) 종목 → 종목코드 전환\n· 끊어진 일별손익 링크 정리\n· 중복 종목 병합\n\n(금년 실현 수익금 재계산은 다음 단계에서 따로 확인합니다)')) return;
   const norm = v => (v || '').replace(/\s+/g, '').toLowerCase();
   const report = [];
 
@@ -3552,7 +3552,8 @@ async function repairDataConsistency() {
   }
   if (staleLinks) report.push(`끊어진 일별손익 링크 ${staleLinks}건 정리`);
 
-  // ③ 금년 실현손익 재계산 (거래기록이 기준)
+  // ③ 금년 실현손익 재계산 (거래기록 기준) — 수기 입력값을 덮어쓸 수 있으므로
+  //    계좌별 변경 내역을 보여주고 별도 동의를 받은 경우에만 적용
   const yr = new Date().getFullYear();
   const sums = {};
   for (const e of journalLog) {
@@ -3561,12 +3562,17 @@ async function repairDataConsistency() {
       if (t.type === 'sell' && t.realized) sums[t.acct || ''] = (sums[t.acct || ''] || 0) + t.realized;
     }
   }
-  let fixedRealized = 0;
-  for (const ya of yearAccounts) {
-    const want = Math.round(sums[ya.name] || 0);
-    if (Math.round(ya.realized || 0) !== want) { ya.realized = want; fixedRealized++; }
+  const realizedDiffs = yearAccounts
+    .map(ya => ({ ya, want: Math.round(sums[ya.name] || 0), cur: Math.round(ya.realized || 0) }))
+    .filter(x => x.cur !== x.want);
+  if (realizedDiffs.length > 0) {
+    const diffLines = realizedDiffs.map(x =>
+      `· ${x.ya.name}: ${x.cur.toLocaleString()}원 → ${x.want.toLocaleString()}원`).join('\n');
+    if (confirm(`금년 실현 수익금을 거래기록 합계로 맞출까요?\n\n${diffLines}\n\n⚠️ 거래기록에 없는 매도(수기 입력분)가 있다면 [취소]하세요.\n현재 값이 맞으면 그대로 두는 것이 안전합니다.`)) {
+      for (const x of realizedDiffs) x.ya.realized = x.want;
+      report.push(`금년 실현손익 재계산: ${realizedDiffs.length}개 계좌`);
+    }
   }
-  if (fixedRealized) report.push(`금년 실현손익 재계산: ${fixedRealized}개 계좌`);
 
   // ④ 같은 계좌·같은 티커 중복 종목 병합 (수량 합산, 평단 가중평균)
   let merged = 0;
