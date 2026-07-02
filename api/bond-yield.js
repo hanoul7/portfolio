@@ -39,43 +39,83 @@ export default async function handler(req, res) {
     }
 
     if (country === 'KR') {
-      // 네이버 금융 국고채(10년) 일별 시세 — HTML 테이블 파싱
-      // 엔드포인트/코드가 바뀔 수 있어 여러 후보를 순서대로 시도
-      const candidates = [
-        'https://finance.naver.com/marketindex/interestDailyQuote.naver?marketindexCd=IRR_GOVT10Y&page=1',
-        'https://finance.naver.com/marketindex/interestDailyQuote.nhn?marketindexCd=IRR_GOVT10Y&page=1',
-        'https://finance.naver.com/marketindex/interestDailyQuote.naver?marketindexCd=IRR_GOVT10&page=1',
-        'https://finance.naver.com/marketindex/bondDailyQuote.naver?marketindexCd=IRR_GOVT10Y&page=1',
-      ];
-      // 날짜(예 2026.06.05) 다음에 오는 첫 숫자(=종가/금리)를 행마다 추출
-      const re = /class="date"[^>]*>\s*([\d.]{6,10})\s*<\/td>[\s\S]*?class="num"[^>]*>\s*([\d.]+)/g;
+      // 네이버 채권 API — 국고채 10년(로이터 코드 KR10YT=RR) JSON
+      // 구 시장지표 페이지(finance.naver.com)에는 3년물까지만 있어 모바일 API 사용
+      const hdrs = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
+        'Accept': 'application/json',
+        'Referer': 'https://m.stock.naver.com/marketindex/bond/KR10YT%3DRR',
+      };
+      const num = v => {
+        const n = parseFloat(String(v ?? '').replace(/,/g, ''));
+        return Number.isFinite(n) && n > 0 && n < 30 ? n : null;
+      };
       const debug = [];
-      for (const url of candidates) {
+
+      // 일별 시세 목록 (최신순) — 응답 구조가 바뀔 수 있어 closePrice+날짜를 가진 객체를 깊이 탐색
+      const priceUrls = [
+        'https://m.stock.naver.com/front-api/marketIndex/prices?category=bond&reutersCode=KR10YT%3DRR&page=1&pageSize=10',
+        'https://api.stock.naver.com/marketindex/bond/KR10YT%3DRR/prices?page=1&pageSize=10',
+        'https://api.stock.naver.com/marketindex/bond/KR10YT=RR/prices?page=1&pageSize=10',
+      ];
+      for (const url of priceUrls) {
         try {
-          const r = await fetchWithTimeout(url, 6000, {
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://finance.naver.com/marketindex/',
-          });
-          if (!r.ok) { debug.push(`${url.split('?')[0].split('/').pop()}: status ${r.status}`); continue; }
-          const html = await r.text();
-          const yields = [];
-          let m;
-          re.lastIndex = 0;
-          while ((m = re.exec(html)) !== null) {
-            const v = parseFloat(m[2]);
-            if (Number.isFinite(v) && v > 0 && v < 30) yields.push(v);
-          }
+          const r = await fetchWithTimeout(url, 6000, hdrs);
+          if (!r.ok) { debug.push(`${new URL(url).host}: status ${r.status}`); continue; }
+          const d = await r.json();
+          const rows = [];
+          (function walk(v) {
+            if (Array.isArray(v)) { v.forEach(walk); return; }
+            if (v && typeof v === 'object') {
+              if (v.closePrice != null && (v.localTradedAt || v.tradedAt || v.localDate)) rows.push(v);
+              else Object.values(v).forEach(walk);
+            }
+          })(d);
+          const yields = rows.map(x => num(x.closePrice)).filter(v => v != null);
           if (yields.length > 0) {
             const price = yields[0];
             const prevClose = yields.length > 1 ? yields[1] : null;
-            console.log(`[bond-yield] KR 10Y: ${price}% (prev ${prevClose}%) via ${url}`);
+            console.log(`[bond-yield] KR 10Y: ${price}% (prev ${prevClose}%) via ${new URL(url).host}`);
             return res.json({ price, prevClose, name: '국고채 10년' });
           }
-          debug.push(`${url.split('?')[0].split('/').pop()}: no rows (len ${html.length})`);
+          debug.push(`${new URL(url).host}: no rows (keys ${Object.keys(d || {}).slice(0, 5).join(',')})`);
         } catch (e) {
-          debug.push(`${url.split('?')[0].split('/').pop()}: ${e.message}`);
+          debug.push(`${new URL(url).host}: ${e.message}`);
         }
       }
+
+      // 최후 폴백: 상세 API — 현재 금리만이라도 표시 (전일비는 생략)
+      try {
+        const r = await fetchWithTimeout(
+          'https://m.stock.naver.com/front-api/marketIndex/productDetails?category=bond&reutersCode=KR10YT%3DRR', 6000, hdrs);
+        if (r.ok) {
+          const d = await r.json();
+          let found = null;
+          (function walk(v) {
+            if (found || !v || typeof v !== 'object') return;
+            if (Array.isArray(v)) { v.forEach(walk); return; }
+            if (v.closePrice != null && num(v.closePrice) != null) { found = v; return; }
+            Object.values(v).forEach(walk);
+          })(d);
+          if (found) {
+            const price = num(found.closePrice);
+            // 전일비가 있으면 전일값 복원 (하락이면 delta 부호 처리)
+            const delta = parseFloat(String(found.compareToPreviousClosePrice ?? '').replace(/,/g, ''));
+            const falling = /FALL|MINUS|하락|RISK/i.test(String(found.fluctuationsType || found.compareToPreviousPrice?.name || ''));
+            const prevClose = Number.isFinite(delta) && delta !== 0
+              ? price + (falling ? Math.abs(delta) : -Math.abs(delta))
+              : null;
+            console.log(`[bond-yield] KR 10Y (detail): ${price}%`);
+            return res.json({ price, prevClose, name: '국고채 10년' });
+          }
+          debug.push('productDetails: no closePrice');
+        } else {
+          debug.push(`productDetails: status ${r.status}`);
+        }
+      } catch (e) {
+        debug.push(`productDetails: ${e.message}`);
+      }
+
       console.log(`[bond-yield] KR 10Y all failed: ${debug.join(' | ')}`);
       return res.status(500).json({ error: 'kr bond yield unavailable', debug });
     }
