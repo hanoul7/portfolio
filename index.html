@@ -844,7 +844,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       </div>
     </div>
     <div id="year-accounts-list"></div>
-    <div style="display:flex;gap:8px;margin-top:16px">
+    <button onclick="repairDataConsistency()" style="width:100%;box-sizing:border-box;margin-top:12px;font-size:12px;padding:9px;border-radius:8px;border:1px dashed var(--accent);background:var(--accent-dim);color:var(--accent);cursor:pointer">🔧 데이터 정리 (거래기록·실현손익 무결성 복구)</button>
+    <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn-primary" onclick="saveYearAccounts(); closeYearModal(); render();">저장</button>
       <button class="btn-secondary" onclick="closeYearModal()">취소</button>
     </div>
@@ -2583,12 +2584,51 @@ async function addStock() {
 }
 
 function delStock(id) {
-  if (!confirm('이 종목을 삭제할까요?')) return;
-  pf = pf.filter(s => s.id !== id);
+  const s = pf.find(x => x.id === id);
+  if (!s) return;
+  if (!confirm(`'${s.name || s.ticker}' 종목을 삭제할까요?`)) return;
+  // 이 종목을 참조하는 거래기록 확인 → 함께 삭제 여부 선택
+  const acct = s.acct || '';
+  const relatedCount = journalLog.reduce((n, e) =>
+    n + ((e.trades || []).some(t => t.ticker === s.ticker && (t.acct || '') === acct) ? 1 : 0), 0);
+  if (relatedCount > 0) {
+    if (confirm(`이 종목의 거래기록 ${relatedCount}건이 있습니다.\n거래기록도 함께 삭제할까요?\n\n[확인] 함께 삭제 (매도 실현손익도 차감됨)\n[취소] 거래기록은 남겨둠`)) {
+      removeJournalTradesFor(s.ticker, acct);
+    }
+  }
+  pf = pf.filter(x => x.id !== id);
   delete px[id];
   save();
   syncYearAccounts();
   render();
+}
+
+// 특정 종목(ticker+acct)의 거래를 거래기록에서 제거 — 빈 entry는 삭제, 실현손익 차감
+function removeJournalTradesFor(ticker, acct) {
+  let removedTrades = 0;
+  for (const e of journalLog) {
+    const keep = [];
+    for (const t of (e.trades || [])) {
+      if (t.ticker === ticker && (t.acct || '') === acct) {
+        removedTrades++;
+        if (t.type === 'sell' && t.realized) {
+          const ya = yearAccounts.find(a => a.name === (t.acct || ''));
+          if (ya) ya.realized = (ya.realized || 0) - t.realized;
+        }
+      } else keep.push(t);
+    }
+    e.trades = keep;
+  }
+  journalLog = journalLog.filter(e => (e.trades || []).length > 0);
+  // 사라진 entry를 가리키는 일별손익 링크 제거
+  const ids = new Set(journalLog.map(e => e.id));
+  for (const d of dailyPnl) {
+    if (d.journalId && !ids.has(d.journalId)) delete d.journalId;
+  }
+  saveJournal();
+  saveDailyPnl();
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+  return removedTrades;
 }
 
 // ── 모달 ──
@@ -2726,6 +2766,13 @@ function saveEdit() {
   if (s.market === 'US' && avgFx <= 0) {
     err.textContent = '매입 환율을 확인해주세요'; return;
   }
+  // 거래기록 연동 확인 — 연결된 기록이 있으면 어긋날 수 있는 편집에 경고
+  const oldAcct = s.acct || '';
+  const relatedTrades = journalLog.reduce((n, e) =>
+    n + (e.trades || []).filter(t => t.ticker === s.ticker && (t.acct || '') === oldAcct).length, 0);
+  if (relatedTrades > 0 && (avg !== s.avg || qty !== s.qty)) {
+    if (!confirm(`이 종목에는 거래기록 ${relatedTrades}건이 연결되어 있습니다.\n평단/수량을 직접 수정하면 거래기록과 어긋날 수 있습니다.\n(가능하면 거래기록에서 수정하는 것을 권장)\n\n그래도 수정할까요?`)) return;
+  }
   s.avg = avg;
   s.qty = qty;
   if (s.market === 'US') s.avgFx = avgFx;
@@ -2734,6 +2781,17 @@ function saveEdit() {
     if (mp <= 0) { err.textContent = '현재가를 입력해주세요'; return; }
     s.manualPrice = mp;
     px[s.id] = { priceKrw: mp, priceLocal: mp, prevClose: mp, changeRatio: 0, name: s.name };
+  }
+  // 계좌 변경 시 거래기록의 계좌도 함께 이동 (매칭이 끊기지 않도록)
+  if (acct !== oldAcct && relatedTrades > 0) {
+    if (confirm(`거래기록 ${relatedTrades}건의 계좌도 '${acct || '미지정'}'(으)로 함께 이동할까요?\n(이동하지 않으면 거래기록과 종목의 연결이 끊어집니다)`)) {
+      for (const e of journalLog) {
+        for (const t of (e.trades || [])) {
+          if (t.ticker === s.ticker && (t.acct || '') === oldAcct) t.acct = acct;
+        }
+      }
+      saveJournal();
+    }
   }
   s.acct = acct;
   save();
@@ -3458,6 +3516,94 @@ async function migrateManualKrStocks() {
     if (appKey && appSecret) refreshAll();
   }
   return changed;
+}
+
+// ── 데이터 정리 (무결성 복구) ──
+// 종목 삭제/재입력 과정에서 꼬인 데이터를 한 번에 복구:
+// ① 거래기록의 수기(한글명) 거래 → 종목코드 전환
+// ② 삭제된 거래기록을 가리키는 일별손익 링크 제거
+// ③ 금년 실현손익을 거래기록 기준으로 재계산
+// ④ 같은 계좌·같은 종목 중복 보유 항목 병합
+async function repairDataConsistency() {
+  if (!confirm('데이터 정리를 실행할까요?\n\n· 거래기록의 수기(한글명) 종목 → 종목코드 전환\n· 끊어진 일별손익 링크 정리\n· 금년 실현손익을 거래기록 기준으로 재계산\n· 중복 종목 병합\n\n(금년 실현손익이 거래기록 합계로 덮어써집니다)')) return;
+  const norm = v => (v || '').replace(/\s+/g, '').toLowerCase();
+  const report = [];
+
+  // ① 거래기록의 수기(MANUAL) 한글 종목 → KR 코드 전환
+  let fixedManual = 0;
+  for (const e of journalLog) {
+    for (const t of (e.trades || [])) {
+      if (t.market !== 'MANUAL' || !/[가-힣]/.test(t.ticker || '')) continue;
+      const nm = t.name || t.ticker;
+      // 현재 보유 중인 같은 이름의 KR 종목 우선, 없으면 네이버 검색(정확 일치만)
+      const match = pf.find(x => x.market === 'KR' && norm(x.name) === norm(nm));
+      if (match) { t.ticker = match.ticker; t.market = 'KR'; fixedManual++; continue; }
+      const hit = await resolveKrCode(nm);
+      if (hit && hit.exact) { t.ticker = hit.code; t.market = 'KR'; t.name = hit.name; fixedManual++; }
+    }
+  }
+  if (fixedManual) report.push(`수기 거래 ${fixedManual}건 → 종목코드 전환`);
+
+  // ② 삭제된 거래기록을 가리키는 일별손익 링크 제거
+  const entryIds = new Set(journalLog.map(e => e.id));
+  let staleLinks = 0;
+  for (const d of dailyPnl) {
+    if (d.journalId && !entryIds.has(d.journalId)) { delete d.journalId; staleLinks++; }
+  }
+  if (staleLinks) report.push(`끊어진 일별손익 링크 ${staleLinks}건 정리`);
+
+  // ③ 금년 실현손익 재계산 (거래기록이 기준)
+  const yr = new Date().getFullYear();
+  const sums = {};
+  for (const e of journalLog) {
+    if (!e.date || parseInt(e.date.slice(0, 4), 10) !== yr) continue;
+    for (const t of (e.trades || [])) {
+      if (t.type === 'sell' && t.realized) sums[t.acct || ''] = (sums[t.acct || ''] || 0) + t.realized;
+    }
+  }
+  let fixedRealized = 0;
+  for (const ya of yearAccounts) {
+    const want = Math.round(sums[ya.name] || 0);
+    if (Math.round(ya.realized || 0) !== want) { ya.realized = want; fixedRealized++; }
+  }
+  if (fixedRealized) report.push(`금년 실현손익 재계산: ${fixedRealized}개 계좌`);
+
+  // ④ 같은 계좌·같은 티커 중복 종목 병합 (수량 합산, 평단 가중평균)
+  let merged = 0;
+  const byKey = {};
+  const keepList = [];
+  for (const s of pf) {
+    const k = (s.acct || '') + '|' + s.market + '|' + s.ticker;
+    const a = byKey[k];
+    if (a) {
+      const totalQty = a.qty + s.qty;
+      if (totalQty > 0) {
+        if (a.market === 'US') {
+          const aFx = a.avgFx > 0 ? a.avgFx : (usdkrw || 0);
+          const sFx = s.avgFx > 0 ? s.avgFx : (usdkrw || 0);
+          const usdA = a.avg * a.qty, usdS = s.avg * s.qty;
+          if (usdA + usdS > 0 && (aFx > 0 || sFx > 0)) a.avgFx = (usdA * aFx + usdS * sFx) / (usdA + usdS);
+        }
+        a.avg = (a.avg * a.qty + s.avg * s.qty) / totalQty;
+        a.qty = totalQty;
+      }
+      delete px[s.id];
+      merged++;
+    } else {
+      byKey[k] = s;
+      keepList.push(s);
+    }
+  }
+  if (merged) { pf = keepList; report.push(`중복 종목 ${merged}건 병합`); }
+
+  save();
+  saveJournal();
+  saveDailyPnl();
+  localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+  syncYearAccounts();
+  render();
+  alert(report.length ? '데이터 정리 완료:\n\n· ' + report.join('\n· ') : '문제가 발견되지 않았습니다 ✓');
+  if (report.length && appKey && appSecret) refreshAll();
 }
 
 // 체결 알림 스크린샷 → 거래 자동입력 (Claude 비전)
