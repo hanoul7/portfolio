@@ -844,7 +844,8 @@ main { max-width: 1800px; margin: 0 auto; padding: 20px 16px; }
       </div>
     </div>
     <div id="year-accounts-list"></div>
-    <button onclick="repairDataConsistency()" style="width:100%;box-sizing:border-box;margin-top:12px;font-size:12px;padding:9px;border-radius:8px;border:1px dashed var(--accent);background:var(--accent-dim);color:var(--accent);cursor:pointer">🔧 데이터 정리 (거래기록·실현손익 무결성 복구)</button>
+    <div id="baseline-area" style="margin-top:12px"></div>
+    <button onclick="repairDataConsistency()" style="width:100%;box-sizing:border-box;margin-top:8px;font-size:12px;padding:9px;border-radius:8px;border:1px dashed var(--accent);background:var(--accent-dim);color:var(--accent);cursor:pointer">🔧 데이터 정리 (거래기록·실현손익 무결성 복구)</button>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn-primary" onclick="saveYearAccounts(); closeYearModal(); render();">저장</button>
       <button class="btn-secondary" onclick="closeYearModal()">취소</button>
@@ -2836,6 +2837,16 @@ function syncYearAccounts() {
 
 function renderYearAccounts() {
   syncYearAccounts();
+  // 기준점 상태 표시
+  const ba = document.getElementById('baseline-area');
+  if (ba) {
+    ba.innerHTML = journalBaseline
+      ? `<div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:8px 10px;border:1px solid var(--up);border-radius:8px;background:rgba(16,185,129,0.06);color:var(--text2)">
+          <span style="flex:1">📌 기준점 확정: <b style="font-family:var(--mono)">${journalBaseline.date}</b> · 이전 기록 ${(journalBaseline.entryIds || []).length}건 잠김</span>
+          <button onclick="clearJournalBaseline()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer">해제</button>
+        </div>`
+      : `<button onclick="setJournalBaseline()" style="width:100%;box-sizing:border-box;font-size:12px;padding:9px;border-radius:8px;border:1px dashed var(--up);background:rgba(16,185,129,0.06);color:var(--up);cursor:pointer">📌 현재 값을 기준점으로 확정 (증권사와 수기로 맞춘 직후 권장)</button>`;
+  }
   const list = document.getElementById('year-accounts-list');
   if (!list) return;
   if (yearAccounts.length === 0) {
@@ -3531,6 +3542,36 @@ async function migrateManualKrStocks() {
   return changed;
 }
 
+// ── 기준점(baseline) 확정 ──
+// 키움 등 실계좌와 수기로 맞춘 시점의 값을 '확정'해서, 이전 거래기록과
+// 현재 잔고가 충돌하지 않게 한다. 이후 재계산은 기준값 + 기준점 이후 거래만 사용.
+let journalBaseline = JSON.parse(localStorage.getItem('pf_journal_baseline') || 'null');
+
+function isBaselineLocked(entryId) {
+  return !!(journalBaseline && Array.isArray(journalBaseline.entryIds) && journalBaseline.entryIds.includes(entryId));
+}
+
+function setJournalBaseline() {
+  if (!confirm('현재의 보유 종목(평단·수량)과 금년 실현 수익금이 정확하다는 전제로,\n지금을 기준점으로 확정합니다.\n\n· 데이터 정리의 실현손익 재계산 = 확정값 + 기준점 이후 거래\n· 기존 거래기록은 보관용으로 잠김 (수정 불가, 삭제해도 잔고 영향 없음)\n\n계속할까요?')) return;
+  const realizedByAcct = {};
+  for (const ya of yearAccounts) realizedByAcct[ya.name] = Math.round(ya.realized || 0);
+  journalBaseline = {
+    date: new Date().toISOString().slice(0, 10),
+    realizedByAcct,
+    entryIds: journalLog.map(e => e.id)
+  };
+  localStorage.setItem('pf_journal_baseline', JSON.stringify(journalBaseline));
+  renderYearAccounts();
+  alert('기준점 확정: ' + journalBaseline.date + '\n이전 기록 ' + journalBaseline.entryIds.length + '건은 보관용으로 잠겼습니다.');
+}
+
+function clearJournalBaseline() {
+  if (!confirm('기준점을 해제할까요?\n데이터 정리가 다시 전체 거래기록 기준으로 동작하고, 이전 기록의 수정 잠금도 풀립니다.')) return;
+  journalBaseline = null;
+  localStorage.removeItem('pf_journal_baseline');
+  renderYearAccounts();
+}
+
 // ── 데이터 정리 (무결성 복구) ──
 // 종목 삭제/재입력 과정에서 꼬인 데이터를 한 번에 복구:
 // ① 거래기록의 수기(한글명) 거래 → 종목코드 전환
@@ -3565,23 +3606,30 @@ async function repairDataConsistency() {
   }
   if (staleLinks) report.push(`끊어진 일별손익 링크 ${staleLinks}건 정리`);
 
-  // ③ 금년 실현손익 재계산 (거래기록 기준) — 수기 입력값을 덮어쓸 수 있으므로
-  //    계좌별 변경 내역을 보여주고 별도 동의를 받은 경우에만 적용
+  // ③ 금년 실현손익 재계산 — 기준점이 있으면 '확정값 + 기준점 이후 거래'로 계산
+  //    (기준점 이전 기록은 이미 확정값에 반영된 것으로 간주 → 충돌 없음)
   const yr = new Date().getFullYear();
+  const baseActive = journalBaseline && String(journalBaseline.date || '').startsWith(String(yr));
+  const baseIds = baseActive ? new Set(journalBaseline.entryIds || []) : null;
   const sums = {};
   for (const e of journalLog) {
     if (!e.date || parseInt(e.date.slice(0, 4), 10) !== yr) continue;
+    if (baseIds && baseIds.has(e.id)) continue;   // 기준점 이전 확정분 제외
     for (const t of (e.trades || [])) {
       if (t.type === 'sell' && t.realized) sums[t.acct || ''] = (sums[t.acct || ''] || 0) + t.realized;
     }
   }
+  const baseFor = name => baseActive ? Math.round(journalBaseline.realizedByAcct?.[name] || 0) : 0;
   const realizedDiffs = yearAccounts
-    .map(ya => ({ ya, want: Math.round(sums[ya.name] || 0), cur: Math.round(ya.realized || 0) }))
+    .map(ya => ({ ya, want: baseFor(ya.name) + Math.round(sums[ya.name] || 0), cur: Math.round(ya.realized || 0) }))
     .filter(x => x.cur !== x.want);
   if (realizedDiffs.length > 0) {
     const diffLines = realizedDiffs.map(x =>
       `· ${x.ya.name}: ${x.cur.toLocaleString()}원 → ${x.want.toLocaleString()}원`).join('\n');
-    if (confirm(`금년 실현 수익금을 거래기록 합계로 맞출까요?\n\n${diffLines}\n\n⚠️ 거래기록에 없는 매도(수기 입력분)가 있다면 [취소]하세요.\n현재 값이 맞으면 그대로 두는 것이 안전합니다.`)) {
+    const basisMsg = baseActive
+      ? `기준점(${journalBaseline.date}) 확정값 + 이후 거래기록 합계`
+      : '거래기록 합계';
+    if (confirm(`금년 실현 수익금을 ${basisMsg}로 맞출까요?\n\n${diffLines}\n\n⚠️ 기록에 없는 매도(수기 입력분)가 있다면 [취소]하세요.`)) {
       for (const x of realizedDiffs) x.ya.realized = x.want;
       report.push(`금년 실현손익 재계산: ${realizedDiffs.length}개 계좌`);
     }
@@ -4128,8 +4176,12 @@ function migrateUsRealizedKRW() {
 function deleteJournalEntry(entryId) {
   const entry = journalLog.find(j => j.id === entryId);
   if (!entry) return;
-  if (!confirm('이 거래 기록을 삭제하고 원래 상태로 되돌릴까요?')) return;
-  reverseEntryEffect(entry);
+  const locked = isBaselineLocked(entryId);
+  const msg = locked
+    ? `📌 기준점 이전 기록입니다.\n잔고·실현손익에는 영향 없이 기록만 삭제합니다. 계속할까요?`
+    : '이 거래 기록을 삭제하고 원래 상태로 되돌릴까요?';
+  if (!confirm(msg)) return;
+  if (!locked) reverseEntryEffect(entry);
   journalLog = journalLog.filter(j => j.id !== entryId);
   save();
   syncYearAccounts();
@@ -4150,6 +4202,10 @@ function deleteJournalEntry(entryId) {
 function editJournalEntry(entryId) {
   const entry = journalLog.find(j => j.id === entryId);
   if (!entry) return;
+  if (isBaselineLocked(entryId)) {
+    alert(`📌 기준점(${journalBaseline.date}) 확정 이전 기록은 잔고 보호를 위해 수정할 수 없습니다.\n수정이 필요하면 손익 계좌(📊)에서 기준점을 해제하세요.`);
+    return;
+  }
   // 원본 보관(취소 시 복원용)
   const originalEntry = JSON.parse(JSON.stringify(entry));
   reverseEntryEffect(entry);
@@ -4734,7 +4790,8 @@ function exportData() {
     silverPremium,
     yearAccounts,
     journalLog,
-    dailyPnl
+    dailyPnl,
+    journalBaseline
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -4788,6 +4845,7 @@ function importData(e) {
       if (Array.isArray(data.yearAccounts)) { yearAccounts = data.yearAccounts; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       else if (data.prevYearEndVal > 0) { yearAccounts = [{ name: '계좌1', yearEndPnl: data.prevYearEndVal, realized: data.thisYearRealized || 0 }]; localStorage.setItem('year_accounts', JSON.stringify(yearAccounts)); }
       if (Array.isArray(data.journalLog)) { journalLog = data.journalLog; saveJournal(); }
+      if (data.journalBaseline && data.journalBaseline.date) { journalBaseline = data.journalBaseline; localStorage.setItem('pf_journal_baseline', JSON.stringify(journalBaseline)); }
       let mergeNote = '';
       if (Array.isArray(data.dailyPnl)) {
         const { merged, preservedMissed } = mergeDailyPnl(dailyPnl, data.dailyPnl);
