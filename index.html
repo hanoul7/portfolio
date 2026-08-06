@@ -2814,14 +2814,23 @@ function closeYearModal() { document.getElementById('year-modal').classList.remo
 function syncYearAccounts() {
   // 포트폴리오 종목의 계좌명 목록 추출
   const acctNames = [...new Set(pf.map(s => s.acct).filter(Boolean))].sort();
-  // 기존 yearAccounts에서 값 보존, 새 계좌 추가, 없는 계좌 제거
+  // 기존 yearAccounts에서 값 보존, 새 계좌 추가
   const oldMap = {};
   for (const ya of yearAccounts) oldMap[ya.name] = ya;
-  yearAccounts = acctNames.map(name => {
+  const next = acctNames.map(name => {
     if (oldMap[name]) return oldMap[name];
     const hasUS = pf.some(s => s.acct === name && s.market === 'US');
     return { name, yearEndPnl: 0, realized: 0, feeRate: 0, taxRate: hasUS ? 22 : 0 };
   });
+  // 보유 종목이 없어도 연간 데이터(실현손익·작년말 손익·환율)가 있는 계좌는 보존
+  // — 전량 매도 순간 계좌 데이터가 통째로 사라지던 문제 방지 (재매수 시 그대로 이어짐)
+  for (const ya of yearAccounts) {
+    if (!acctNames.includes(ya.name) &&
+        ((ya.realized || 0) !== 0 || (ya.yearEndPnl || 0) !== 0 || (ya.yearEndFx || 0) !== 0)) {
+      next.push(ya);
+    }
+  }
+  yearAccounts = next;
   localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
 }
 
@@ -2943,12 +2952,15 @@ function openJournalModal(preselect) {
   renderJournalContent();
 }
 function closeJournalModal() {
+  // 편집 중 닫기(바깥 클릭/ESC) → 원본 복원. 복원 없이 닫으면 기록이 증발함
+  const wasEditing = !!journalEditing;
+  restoreEditingEntry();
   document.getElementById('journal-modal').classList.remove('open');
   journalView = 'list';
   journalTrades = [];
   journalPreselect = null;
-  journalEditing = null;
   currentFormDate = '';
+  if (wasEditing) render();
 }
 
 function renderJournalContent() {
@@ -3290,6 +3302,7 @@ function renderTradeRow(trade, idx) {
       </div>`;
     })() : ''}
     ${realizedHtml}
+    ${trade._warn ? `<div style="font-size:10px;color:#e67e22;font-weight:600;margin-top:4px">⚠️ ${trade._warn}</div>` : ''}
   </div>`;
 }
 
@@ -3656,6 +3669,16 @@ async function importTradesFromImage(input) {
       let row;
       if (held) {
         row = { acct: held.acct || '', ticker: held.ticker, market: held.market, name: held.name, type: action, qty, price, avgFx: 0, realized: 0, isNew: false };
+        // OCR 오인식 방어: 인식된 단가가 현재가와 15% 이상 차이나거나 매도수량 > 보유수량이면 경고
+        const hp = px[held.id];
+        const cur = hp ? (held.market === 'US' ? hp.priceLocal : hp.priceKrw) : 0;
+        if (cur > 0 && price > 0) {
+          const dev = Math.abs(price - cur) / cur;
+          if (dev > 0.15) row._warn = `인식 단가가 현재가(${held.market === 'US' ? '$' + cur.toFixed(2) : fmt(cur) + '원'})와 ${(dev * 100).toFixed(0)}% 차이 — 숫자 확인 필요`;
+        }
+        if (action === 'sell' && qty > held.qty) {
+          row._warn = `매도 수량(${qty})이 보유 수량(${held.qty})보다 많음 — 숫자 확인 필요`;
+        }
       } else {
         let ticker = (t.ticker || '').trim().toUpperCase();
         let market;
@@ -3939,23 +3962,27 @@ async function saveJournalEntry() {
   if (appKey && appSecret) refreshAll();
 }
 
+// 편집 중이던 원본 entry 복원 — 취소 버튼·모달 닫기 공용
+// (editJournalEntry가 진입 시 entry를 빼고 효과를 되돌려두므로, 저장 없이 끝나면 반드시 복원해야 함)
+function restoreEditingEntry() {
+  if (!journalEditing) return;
+  const original = journalEditing.originalEntry;
+  if (original && !journalLog.some(j => j.id === original.id)) {
+    applyEntryEffect(original);
+    journalLog.push(original);
+    journalLog.sort((a, b) => a.id.localeCompare(b.id));
+    save();
+    localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
+    saveJournal();
+  }
+  journalEditing = null;
+}
+
 // 매매 입력 취소 (편집 중이면 되돌린 상태 유지)
 function cancelTradeInput() {
-  if (journalEditing) {
-    // 편집을 취소한 경우 원 entry를 되돌려 놓아야 한다 → reverse된 상태를 다시 재적용
-    const original = journalEditing.originalEntry;
-    if (original) {
-      applyEntryEffect(original);
-      journalLog.push(original);
-      journalLog.sort((a, b) => a.id.localeCompare(b.id));
-      save();
-      localStorage.setItem('year_accounts', JSON.stringify(yearAccounts));
-      saveJournal();
-    }
-  }
+  restoreEditingEntry();
   journalView = 'list';
   journalTrades = [];
-  journalEditing = null;
   currentFormDate = '';
   render();
   renderJournalContent();
