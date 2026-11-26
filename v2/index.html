@@ -129,8 +129,18 @@ table.prev td:first-child, table.prev th:first-child { text-align: left; }
 <div class="overlay" id="import-overlay"><div class="modal" id="import-modal"></div></div>
 <div class="overlay" id="settings-overlay"><div class="modal" id="settings-modal"></div></div>
 
-<script src="ledger.js"></script>
-<script src="quotes.js"></script>
-<script src="app.js"></script>
+<script>
+// 초기 로드 오류를 화면에 표시 (디버깅용 — 깜깜이 방지)
+window.addEventListener('error', function (e) {
+  var el = document.getElementById('boot-err');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = '오류: ' + (e.message || '스크립트 로드 실패') + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : '');
+}, true);
+</script>
+<div id="boot-err" style="display:none;position:fixed;top:0;left:0;right:0;z-index:999;background:#7f1d1d;color:#fff;font-size:12px;padding:8px 12px;font-family:monospace"></div>
+<script src="/v2/ledger.js"></script>
+<script src="/v2/quotes.js"></script>
+<script src="/v2/app.js"></script>
 </body>
 </html>
