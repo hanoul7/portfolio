@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>MY.PORTFOLIO v2</title>
+<link rel="apple-touch-icon" href="/icon-180.png" />
+<style>
+:root {
+  --bg: #0b0e14; --bg2: #131722; --bg3: #1b2130; --card: #161b28;
+  --border: #252b3b; --border2: #2e3650;
+  --text: #e8eaf2; --text2: #b7bdd1; --text3: #7a8099;
+  --up: #10b981; --down: #ef4444; --accent: #6366f1; --accent-dim: rgba(99,102,241,0.12);
+  --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  --r: 10px; --r2: 14px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; padding-bottom: 72px; }
+.wrap { max-width: 560px; margin: 0 auto; padding: 0 12px; }
+
+header { display: flex; align-items: center; justify-content: space-between; padding: 14px 2px 10px; }
+.logo { font-weight: 800; letter-spacing: 0.02em; font-size: 15px; }
+.logo em { color: var(--accent); font-style: normal; }
+.logo .v2 { font-size: 10px; color: var(--accent); background: var(--accent-dim); border-radius: 8px; padding: 2px 7px; margin-left: 6px; vertical-align: 2px; }
+.hbtns { display: flex; gap: 6px; }
+.icon-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 9px; background: var(--bg2); border: 1px solid var(--border); cursor: pointer; font-size: 14px; }
+
+.sum-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--r2); padding: 12px 14px; }
+.card.wide { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
+.c-label { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+.c-val { font-size: 19px; font-weight: 700; font-family: var(--mono); }
+.c-sub { font-size: 11px; color: var(--text3); margin-top: 3px; font-family: var(--mono); }
+.up { color: var(--up); } .down { color: var(--down); }
+
+.statusline { display: flex; justify-content: space-between; font-size: 11px; color: var(--text3); padding: 2px 4px 10px; font-family: var(--mono); }
+
+.acct-group { background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r2); margin-bottom: 12px; overflow: hidden; }
+.acct-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.acct-name { font-size: 12px; font-weight: 700; }
+.acct-stats { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+
+.stock { padding: 11px 14px; border-bottom: 1px solid var(--border); }
+.stock:last-child { border-bottom: none; }
+.s-row1 { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.s-name { font-weight: 700; font-size: 13.5px; }
+.s-tick { font-size: 10.5px; color: var(--text3); font-family: var(--mono); margin-left: 6px; }
+.s-chg { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+.s-row2 { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); font-family: var(--mono); margin-bottom: 3px; }
+.s-row3 { display: flex; justify-content: space-between; font-size: 12px; font-family: var(--mono); }
+.badge { font-size: 9px; border-radius: 7px; padding: 1.5px 6px; margin-left: 6px; vertical-align: 1px; }
+.badge.kr { background: rgba(99,102,241,0.15); color: #a5a8ff; }
+.badge.us { background: rgba(16,185,129,0.13); color: #5fd6b1; }
+.badge.etc { background: var(--bg3); color: var(--text3); }
+.mstate { font-size: 9.5px; margin-left: 5px; }
+
+.empty { text-align: center; color: var(--text3); padding: 48px 12px; font-size: 13px; line-height: 2; }
+.btn { display: inline-block; border: none; border-radius: 10px; padding: 10px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-ghost { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
+.btn-sm { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+
+.tabs { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(11,14,20,0.92); backdrop-filter: blur(10px); border-top: 1px solid var(--border); display: flex; z-index: 50; padding-bottom: env(safe-area-inset-bottom); }
+.tab { flex: 1; text-align: center; padding: 12px 0 10px; font-size: 12px; color: var(--text3); cursor: pointer; }
+.tab.active { color: var(--accent); font-weight: 700; }
+.fab { position: fixed; right: 18px; bottom: calc(64px + env(safe-area-inset-bottom)); width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 26px; border: none; cursor: pointer; z-index: 51; box-shadow: 0 6px 20px rgba(99,102,241,0.45); }
+
+/* 원장 */
+.lg-day { font-size: 11px; color: var(--text3); font-family: var(--mono); margin: 14px 2px 6px; }
+.lg-item { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 12px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+.lg-type { font-size: 10px; font-weight: 700; border-radius: 7px; padding: 2.5px 7px; flex-shrink: 0; }
+.t-BUY { background: rgba(16,185,129,0.13); color: var(--up); }
+.t-SELL { background: rgba(239,68,68,0.13); color: var(--down); }
+.t-OPEN { background: var(--accent-dim); color: var(--accent); }
+.t-DEPOSIT, .t-DIVIDEND { background: rgba(14,165,233,0.13); color: #38bdf8; }
+.t-WITHDRAW { background: rgba(245,158,11,0.13); color: #f59e0b; }
+.t-ADJUST { background: var(--bg3); color: var(--text3); }
+.lg-main { flex: 1; min-width: 0; }
+.lg-title { font-size: 13px; font-weight: 600; }
+.lg-sub { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-top: 2px; }
+.lg-btns { display: flex; gap: 4px; }
+
+/* 모달 */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: flex-end; justify-content: center; z-index: 100; }
+.overlay.open { display: flex; }
+.modal { background: var(--bg2); border: 1px solid var(--border2); border-radius: 18px 18px 0 0; width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+.m-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+.field { margin-bottom: 10px; }
+.f-label { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+input, select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font-size: 14px; padding: 9px 11px; font-family: var(--mono); }
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.trade-row { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 10px; margin-bottom: 8px; position: relative; }
+.trade-x { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 50%; background: var(--bg2); border: 1px solid var(--border); color: var(--text3); font-size: 10px; cursor: pointer; }
+.hint { font-size: 11px; margin-top: 4px; }
+.warn { color: #f59e0b; font-size: 11px; margin-top: 4px; }
+.err { color: var(--down); font-size: 12px; margin-top: 6px; }
+table.prev { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
+table.prev th, table.prev td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+table.prev th { color: var(--text3); font-weight: 400; font-size: 10.5px; }
+table.prev td:first-child, table.prev th:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">MY<em>.</em>PORTFOLIO<span class="v2">v2</span></div>
+    <div class="hbtns">
+      <div class="icon-btn" onclick="App.refresh()" title="새로고침">↻</div>
+      <div class="icon-btn" onclick="App.openSettings()" title="설정">⚙</div>
+    </div>
+  </header>
+  <div id="view-home">
+    <div id="summary"></div>
+    <div class="statusline"><span id="st-fx">—</span><span id="st-time">—</span></div>
+    <div id="accounts"></div>
+  </div>
+  <div id="view-ledger" style="display:none"></div>
+</div>
+
+<button class="fab" onclick="App.openTrade()">+</button>
+<div class="tabs">
+  <div class="tab active" id="tab-home" onclick="App.showView('home')">보유</div>
+  <div class="tab" id="tab-ledger" onclick="App.showView('ledger')">원장</div>
+</div>
+
+<div class="overlay" id="trade-overlay"><div class="modal" id="trade-modal"></div></div>
+<div class="overlay" id="import-overlay"><div class="modal" id="import-modal"></div></div>
+<div class="overlay" id="settings-overlay"><div class="modal" id="settings-modal"></div></div>
+
+<script src="ledger.js"></script>
+<script src="quotes.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
