@@ -58,10 +58,35 @@
   }
 
   // ── 렌더: 요약 + 계좌 카드 ──
+  function sparkline(points, w, h) {
+    if (points.length < 2) return '';
+    const min = Math.min(...points), max = Math.max(...points);
+    const span = max - min || 1;
+    const step = w / (points.length - 1);
+    const dd = points.map((v, i) => `${(i * step).toFixed(1)},${(h - ((v - min) / span) * (h - 4) - 2).toFixed(1)}`).join(' ');
+    const up = points[points.length - 1] >= points[0];
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block"><polyline points="${dd}" fill="none" stroke="var(--${up ? 'up' : 'down'})" stroke-width="1.5"/></svg>`;
+  }
+
   function render() {
     const d = enrich();
     const gain = d.totEval - d.totCost;
     const hasQ = d.st.positions.some(p => p.q && p.q.price > 0);
+    const liveTotal = d.totEval + d.totCash;
+    let yearHtml = '';
+    if (typeof Snapshots !== 'undefined' && hasQ) {
+      const ys = Snapshots.yearStats(YEAR, liveTotal);
+      if (ys) {
+        const pts = [...Snapshots.series(YEAR).map(x => x.total), liveTotal];
+        const baseLabel = ys.startDate <= `${YEAR - 1}-12-31` ? `${YEAR - 1}년 말 기준` : `${ys.startDate} 기준`;
+        yearHtml = `<div class="card wide">
+          <div><div class="c-label">${YEAR}년 손익 · ${baseLabel}</div>
+            <div class="c-val ${cls(ys.gain)}" style="font-size:17px">${fmtSign(ys.gain)}원</div>
+            <div class="c-sub ${cls(ys.gain)}">연수익률 ${fmtPct(ys.rate * 100)} <span style="color:var(--text3)">· 투자원금 대비</span></div></div>
+          <div>${sparkline(pts, 120, 40)}</div>
+        </div>`;
+      }
+    }
     $('summary').innerHTML = `
       <div class="sum-grid">
         <div class="card wide">
@@ -76,6 +101,7 @@
         <div class="card"><div class="c-label">평가손익 (평단 대비)</div>
           <div class="c-val ${cls(gain)}">${hasQ ? fmtSign(gain) + '원' : '—'}</div>
           <div class="c-sub ${cls(gain)}">${hasQ ? fmtPct(pct(gain, d.totCost)) : ''}</div></div>
+        ${yearHtml}
       </div>`;
     $('st-fx').textContent = Quotes.fxKrw ? `USD/KRW ${Quotes.fxKrw.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}` : '';
     $('st-time').textContent = Quotes.lastAt ? '갱신 ' + Quotes.lastAt.toTimeString().slice(0, 5) : '시세 조회 전';
@@ -438,9 +464,14 @@
   }
 
   // ── 새로고침 루프 ──
+  let snapshotRan = false;
   async function refresh() {
     await Quotes.fetchFor(Ledger.state().positions);
     render();
+    if (!snapshotRan && typeof Snapshots !== 'undefined' && Ledger.load().length > 0) {
+      snapshotRan = true;
+      Snapshots.ensure().then(changed => { if (changed) render(); }).catch(() => {});
+    }
   }
 
   // 모달 바깥 클릭 → 닫기 (입력 중 데이터는 rows에 보존되므로 안전)
